@@ -1,0 +1,8 @@
+# requirements.txt
+# --- Core GUI + plotting (Windows-stable pins) ---
+PySide6==6.9.0          # 6.9.1 causes rendering issues with pyqtgraph on Windows
+pyqtgraph==0.13.7
+numpy>=1.26             # numeric ops; pyqtgraph depends on it
+
+# --- NI DAQ ---
+nidaqmx>=0.9            # Python API; requires NI-DAQmx driver installed on Windows
