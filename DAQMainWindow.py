@@ -4,6 +4,15 @@ import numpy as np
 import csv
 from niDAQ import NIDAQReader, NIDAQSettings
 
+# Try to import filtering functions
+try:
+    from freq_filters import low_pass, high_pass, band_pass, band_stop, notch_50hz, notch_60hz
+    FILTERS_AVAILABLE = True
+except ImportError:
+    FILTERS_AVAILABLE = False
+    import warnings
+    warnings.warn("freq_filters not available. Install scipy for filtering functionality.")
+
 class DAQWorker(QtCore.QThread):
     data_ready = QtCore.Signal(np.ndarray, np.ndarray)  # t, y
     error = QtCore.Signal(str)
@@ -55,8 +64,17 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         ]
         self._last_devices = tuple()  # track last seen device list
         self.save_directory = None  # Selected directory for saving files
+        # Filter settings
+        self.filter_enabled = False
+        self.filter_type = "low_pass"
+        self.filter_cutoff1 = 100.0  # Primary cutoff frequency
+        self.filter_cutoff2 = 200.0  # Secondary cutoff (for band filters)
+        self.filter_order = 4
         self.setup_ui()
         self.setup_signals()
+        # Initialize filter UI state (only if filters available)
+        if FILTERS_AVAILABLE:
+            self.on_filter_type_changed()
         self.detect_devices()
         self.start_device_polling()
 
@@ -141,6 +159,72 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.autoScaleCheck = QtWidgets.QCheckBox("Auto-scale")
         self.autoScaleCheck.setChecked(True)
         right_layout.addWidget(self.autoScaleCheck)
+        
+        # Frequency Filtering Controls
+        filter_group = QtWidgets.QGroupBox("Frequency Filtering")
+        filter_layout = QtWidgets.QVBoxLayout(filter_group)
+        
+        if not FILTERS_AVAILABLE:
+            # Show message if filtering not available
+            no_filter_label = QtWidgets.QLabel("Filtering unavailable\n(Install scipy package)")
+            no_filter_label.setStyleSheet("color: orange; font-style: italic;")
+            filter_layout.addWidget(no_filter_label)
+        else:
+            # Enable/Disable filtering
+            self.filterEnableCheck = QtWidgets.QCheckBox("Enable Filtering")
+            self.filterEnableCheck.setChecked(False)
+            filter_layout.addWidget(self.filterEnableCheck)
+            
+            # Filter type selection
+            filter_type_layout = QtWidgets.QHBoxLayout()
+            filter_type_layout.addWidget(QtWidgets.QLabel("Filter Type:"))
+            self.filterTypeCombo = QtWidgets.QComboBox()
+            self.filterTypeCombo.addItems([
+                "Low Pass", "High Pass", "Band Pass", "Band Stop", 
+                "50Hz Notch", "60Hz Notch"
+            ])
+            self.filterTypeCombo.setCurrentText("Low Pass")
+            filter_type_layout.addWidget(self.filterTypeCombo)
+            filter_layout.addLayout(filter_type_layout)
+            
+            # Cutoff frequency controls
+            cutoff_layout = QtWidgets.QGridLayout()
+            
+            # Primary cutoff frequency
+            cutoff_layout.addWidget(QtWidgets.QLabel("Cutoff Freq (Hz):"), 0, 0)
+            self.filterCutoff1Spin = QtWidgets.QDoubleSpinBox()
+            self.filterCutoff1Spin.setRange(0.1, 10000)
+            self.filterCutoff1Spin.setValue(100.0)
+            self.filterCutoff1Spin.setDecimals(1)
+            cutoff_layout.addWidget(self.filterCutoff1Spin, 0, 1)
+            
+            # Secondary cutoff frequency (for band filters)
+            self.filterCutoff2Label = QtWidgets.QLabel("High Freq (Hz):")
+            self.filterCutoff2Label.setVisible(False)
+            cutoff_layout.addWidget(self.filterCutoff2Label, 1, 0)
+            self.filterCutoff2Spin = QtWidgets.QDoubleSpinBox()
+            self.filterCutoff2Spin.setRange(0.1, 10000)
+            self.filterCutoff2Spin.setValue(200.0)
+            self.filterCutoff2Spin.setDecimals(1)
+            self.filterCutoff2Spin.setVisible(False)
+            cutoff_layout.addWidget(self.filterCutoff2Spin, 1, 1)
+            
+            # Filter order
+            cutoff_layout.addWidget(QtWidgets.QLabel("Filter Order:"), 2, 0)
+            self.filterOrderSpin = QtWidgets.QSpinBox()
+            self.filterOrderSpin.setRange(1, 10)
+            self.filterOrderSpin.setValue(4)
+            cutoff_layout.addWidget(self.filterOrderSpin, 2, 1)
+            
+            filter_layout.addLayout(cutoff_layout)
+            
+            # Filter status
+            self.filterStatusLabel = QtWidgets.QLabel("Filter: Disabled")
+            self.filterStatusLabel.setStyleSheet("color: gray; font-style: italic;")
+            filter_layout.addWidget(self.filterStatusLabel)
+        
+        right_layout.addWidget(filter_group)
+        
         # Legend + visibility controls
         self.plotVisibilityChecks = []
         self.legend = self.plot.addLegend()
@@ -193,6 +277,14 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.browseDirBtn.clicked.connect(self.browse_save_directory)
         for cb in self.plotVisibilityChecks:
             cb.stateChanged.connect(self.update_plot_visibility)
+        
+        # Filter control signals (only if filters available)
+        if FILTERS_AVAILABLE:
+            self.filterEnableCheck.stateChanged.connect(self.on_filter_settings_changed)
+            self.filterTypeCombo.currentTextChanged.connect(self.on_filter_type_changed)
+            self.filterCutoff1Spin.valueChanged.connect(self.on_filter_settings_changed)
+            self.filterCutoff2Spin.valueChanged.connect(self.on_filter_settings_changed)
+            self.filterOrderSpin.valueChanged.connect(self.on_filter_settings_changed)
 
     def detect_devices(self):
         from niDAQ import NIDAQReader
@@ -254,6 +346,99 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.statusBar.setText("Device disconnected. Waiting for connection...")
         self.deviceSelector.blockSignals(False)
         self._last_devices = devices_tuple
+
+    def on_filter_type_changed(self):
+        """Handle filter type change - show/hide appropriate controls."""
+        filter_type = self.filterTypeCombo.currentText()
+        
+        # Show/hide secondary cutoff for band filters
+        is_band_filter = filter_type in ["Band Pass", "Band Stop"]
+        self.filterCutoff2Label.setVisible(is_band_filter)
+        self.filterCutoff2Spin.setVisible(is_band_filter)
+        
+        # Update labels
+        if filter_type == "Low Pass":
+            self.filterCutoff1Spin.setToolTip("Cutoff frequency - signals above this will be attenuated")
+        elif filter_type == "High Pass":
+            self.filterCutoff1Spin.setToolTip("Cutoff frequency - signals below this will be attenuated")
+        elif filter_type == "Band Pass":
+            self.filterCutoff1Spin.setToolTip("Lower cutoff frequency")
+            self.filterCutoff2Spin.setToolTip("Upper cutoff frequency")
+        elif filter_type == "Band Stop":
+            self.filterCutoff1Spin.setToolTip("Lower cutoff frequency (start of stop band)")
+            self.filterCutoff2Spin.setToolTip("Upper cutoff frequency (end of stop band)")
+        
+        # Disable controls for notch filters
+        is_notch = filter_type in ["50Hz Notch", "60Hz Notch"]
+        self.filterCutoff1Spin.setEnabled(not is_notch)
+        self.filterCutoff2Spin.setEnabled(not is_notch)
+        
+        self.on_filter_settings_changed()
+
+    def on_filter_settings_changed(self):
+        """Handle changes to filter settings and update filter status."""
+        self.filter_enabled = self.filterEnableCheck.isChecked()
+        self.filter_type = self.filterTypeCombo.currentText().lower().replace(" ", "_")
+        self.filter_cutoff1 = self.filterCutoff1Spin.value()
+        self.filter_cutoff2 = self.filterCutoff2Spin.value()
+        self.filter_order = self.filterOrderSpin.value()
+        
+        # Update status label
+        if self.filter_enabled:
+            if self.filter_type in ["50hz_notch", "60hz_notch"]:
+                status_text = f"Filter: {self.filterTypeCombo.currentText()} (Order {self.filter_order})"
+            elif self.filter_type in ["band_pass", "band_stop"]:
+                status_text = f"Filter: {self.filterTypeCombo.currentText()} {self.filter_cutoff1:.1f}-{self.filter_cutoff2:.1f}Hz (Order {self.filter_order})"
+            else:
+                status_text = f"Filter: {self.filterTypeCombo.currentText()} {self.filter_cutoff1:.1f}Hz (Order {self.filter_order})"
+            self.filterStatusLabel.setText(status_text)
+            self.filterStatusLabel.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            self.filterStatusLabel.setText("Filter: Disabled")
+            self.filterStatusLabel.setStyleSheet("color: gray; font-style: italic;")
+        
+        # Update plot if we have data
+        self.update_plot()
+
+    def apply_filter(self, t, y):
+        """Apply the selected filter to the data.
+        
+        Parameters
+        ----------
+        t : np.ndarray
+            Time array in milliseconds
+        y : np.ndarray
+            Signal data, shape (N, C) where N=samples, C=channels
+            
+        Returns
+        -------
+        np.ndarray
+            Filtered signal data, same shape as input
+        """
+        if not FILTERS_AVAILABLE or not self.filter_enabled or len(t) < 10:  # Need minimum samples for filtering
+            return y
+        
+        try:
+            if self.filter_type == "low_pass":
+                return low_pass(y, t, self.filter_cutoff1, order=self.filter_order)
+            elif self.filter_type == "high_pass":
+                return high_pass(y, t, self.filter_cutoff1, order=self.filter_order)
+            elif self.filter_type == "band_pass":
+                return band_pass(y, t, self.filter_cutoff1, self.filter_cutoff2, order=self.filter_order)
+            elif self.filter_type == "band_stop":
+                return band_stop(y, t, self.filter_cutoff1, self.filter_cutoff2, order=self.filter_order)
+            elif self.filter_type == "50hz_notch":
+                return notch_50hz(y, t, order=self.filter_order)
+            elif self.filter_type == "60hz_notch":
+                return notch_60hz(y, t, order=self.filter_order)
+            else:
+                return y
+        except Exception as e:
+            # If filtering fails, show error and disable filter
+            if FILTERS_AVAILABLE:
+                self.filterEnableCheck.setChecked(False)
+            self.statusBar.setText(f"Filter error: {e}")
+            return y
 
     def get_selected_channels(self):
         return [f"ai{i}" for i, cb in enumerate(self.aiChecks) if cb.isChecked()]
@@ -340,14 +525,27 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.update_statistics()
 
     def update_plot(self):
-        if not self.curves or not self.history_t or not self.history_y:
+        # Check if we have curves and data before proceeding
+        if not hasattr(self, 'curves') or not self.curves or not self.history_t or not self.history_y:
             return
         arr_t = np.array(self.history_t)
         arr_y = np.array(self.history_y)
+        
+        # Apply filtering if enabled
+        if FILTERS_AVAILABLE and self.filter_enabled:
+            try:
+                arr_y_filtered = self.apply_filter(arr_t, arr_y)
+            except Exception as e:
+                # If filtering fails, use original data and show error
+                arr_y_filtered = arr_y
+                self.statusBar.setText(f"Filter error: {e}")
+        else:
+            arr_y_filtered = arr_y
+        
         # X axis is time in ms
         for i, curve in enumerate(self.curves):
             if self.plotVisibilityChecks[i].isChecked():
-                curve.setData(arr_t, arr_y[:, i])
+                curve.setData(arr_t, arr_y_filtered[:, i])
                 curve.show()
             else:
                 curve.hide()
@@ -376,9 +574,17 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         if not self.history_y or not hasattr(self, 'curves'):
             return
             
+        arr_t = np.array(self.history_t)
         arr_y = np.array(self.history_y)
         if arr_y.size == 0:
             return
+        
+        # Apply filtering to statistics if enabled
+        if FILTERS_AVAILABLE and self.filter_enabled:
+            try:
+                arr_y = self.apply_filter(arr_t, arr_y)
+            except Exception:
+                pass  # Use original data if filtering fails
             
         # Update statistics for each channel that has data
         for i in range(min(arr_y.shape[1], self.stats_table.rowCount())):
