@@ -70,6 +70,9 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.filter_cutoff1 = 100.0  # Primary cutoff frequency
         self.filter_cutoff2 = 200.0  # Secondary cutoff (for band filters)
         self.filter_order = 4
+        # Initialize plot curves lists
+        self.curves = []
+        self.spectrum_curves = []
         self.setup_ui()
         self.setup_signals()
         # Initialize filter UI state (only if filters available)
@@ -152,13 +155,62 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         # Right: Live Plot & Save
         right = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right)
+        
+        # Create tabbed plot widget
+        self.plot_tabs = QtWidgets.QTabWidget()
+        
+        # Time Analyzer Tab (existing plot)
+        time_tab = QtWidgets.QWidget()
+        time_layout = QtWidgets.QVBoxLayout(time_tab)
         self.plot = pg.PlotWidget(title="Amplitude vs Time (ms)")
         self.plot.setBackground("k")
-        # Make plot take most of the vertical space (80%)
-        right_layout.addWidget(self.plot, 4)  # Plot gets 4 parts
+        time_layout.addWidget(self.plot)
+        self.plot_tabs.addTab(time_tab, "Time Analyzer")
+        
+        # Spectrum Analyzer Tab (FFT plot)
+        spectrum_tab = QtWidgets.QWidget()
+        spectrum_layout = QtWidgets.QVBoxLayout(spectrum_tab)
+        self.spectrum_plot = pg.PlotWidget(title="Power Spectral Density")
+        self.spectrum_plot.setBackground("k")
+        self.spectrum_plot.setLabel("left", "Power", units="dB")
+        self.spectrum_plot.setLabel("bottom", "Frequency", units="Hz")
+        # Don't set log mode initially - we'll handle it manually
+        spectrum_layout.addWidget(self.spectrum_plot)
+        self.plot_tabs.addTab(spectrum_tab, "Spectrum Analyzer")
+        
+        # Make plot tabs take most of the vertical space (80%)
+        right_layout.addWidget(self.plot_tabs, 4)  # Plot tabs get 4 parts
+        
         self.autoScaleCheck = QtWidgets.QCheckBox("Auto-scale")
         self.autoScaleCheck.setChecked(True)
         right_layout.addWidget(self.autoScaleCheck)
+        
+        # Spectrum Analyzer Controls
+        spectrum_group = QtWidgets.QGroupBox("Spectrum Analyzer Settings")
+        spectrum_layout = QtWidgets.QHBoxLayout(spectrum_group)
+        
+        # FFT Window Type
+        spectrum_layout.addWidget(QtWidgets.QLabel("Window:"))
+        self.fftWindowCombo = QtWidgets.QComboBox()
+        self.fftWindowCombo.addItems(["Hanning", "Hamming", "Blackman", "Rectangle"])
+        self.fftWindowCombo.setCurrentText("Hanning")
+        spectrum_layout.addWidget(self.fftWindowCombo)
+        
+        # FFT Size
+        spectrum_layout.addWidget(QtWidgets.QLabel("FFT Size:"))
+        self.fftSizeCombo = QtWidgets.QComboBox()
+        self.fftSizeCombo.addItems(["Auto", "256", "512", "1024", "2048", "4096"])
+        self.fftSizeCombo.setCurrentText("Auto")
+        spectrum_layout.addWidget(self.fftSizeCombo)
+        
+        # Frequency range
+        spectrum_layout.addWidget(QtWidgets.QLabel("Max Freq (Hz):"))
+        self.maxFreqSpin = QtWidgets.QSpinBox()
+        self.maxFreqSpin.setRange(1, 50000)
+        self.maxFreqSpin.setValue(100)  # Default to 100 Hz
+        spectrum_layout.addWidget(self.maxFreqSpin)
+        
+        right_layout.addWidget(spectrum_group)
         
         # Frequency Filtering Controls
         filter_group = QtWidgets.QGroupBox("Frequency Filtering")
@@ -228,6 +280,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         # Legend + visibility controls
         self.plotVisibilityChecks = []
         self.legend = self.plot.addLegend()
+        self.spectrum_legend = self.spectrum_plot.addLegend()
         self.vis_grid = QtWidgets.QGridLayout()
         for i in range(16):
             cb = QtWidgets.QCheckBox(f"AI{i}")
@@ -277,6 +330,11 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.browseDirBtn.clicked.connect(self.browse_save_directory)
         for cb in self.plotVisibilityChecks:
             cb.stateChanged.connect(self.update_plot_visibility)
+        
+        # Spectrum analyzer control signals
+        self.fftWindowCombo.currentTextChanged.connect(self.update_plot)
+        self.fftSizeCombo.currentTextChanged.connect(self.update_plot)
+        self.maxFreqSpin.valueChanged.connect(self.update_plot)
         
         # Filter control signals (only if filters available)
         if FILTERS_AVAILABLE:
@@ -473,6 +531,10 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.history_y = []
             self.setup_plot_curves(channels)
             self.setup_stats_table(channels)
+            # Update spectrum analyzer frequency range based on sampling rate
+            nyquist_freq = self.rateSpin.value() // 2
+            self.maxFreqSpin.setMaximum(nyquist_freq)
+            self.maxFreqSpin.setValue(min(100, nyquist_freq))
         except Exception as e:
             self.statusBar.setText(f"Error: {e}")
 
@@ -492,8 +554,11 @@ class DAQMainWindow(QtWidgets.QMainWindow):
 
     def setup_plot_curves(self, channels):
         self.plot.clear()
+        self.spectrum_plot.clear()
         self.legend = self.plot.addLegend()
+        self.spectrum_legend = self.spectrum_plot.addLegend()
         self.curves = []
+        self.spectrum_curves = []
         # Remove old visibility checkboxes
         for i in reversed(range(self.vis_grid.count())):
             widget = self.vis_grid.itemAt(i).widget()
@@ -502,8 +567,13 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.plotVisibilityChecks = []
         for i, ch in enumerate(channels):
             pen = pg.mkPen(color=self.channel_colors[i % len(self.channel_colors)], width=3)
+            # Time domain curve
             curve = self.plot.plot([], [], pen=pen, name=ch)
             self.curves.append(curve)
+            # Frequency domain curve
+            spectrum_curve = self.spectrum_plot.plot([], [], pen=pen, name=ch)
+            self.spectrum_curves.append(spectrum_curve)
+            # Visibility checkbox
             cb = QtWidgets.QCheckBox(ch.upper())
             cb.setChecked(True)
             cb.stateChanged.connect(self.update_plot_visibility)
@@ -513,14 +583,26 @@ class DAQMainWindow(QtWidgets.QMainWindow):
     def on_data_ready(self, t, y):
         if t.size == 0 or y.size == 0:
             return
+        
         self.history_t.extend(t.tolist())
-        self.history_y.extend(y.tolist())
+        
+        # Handle both 1D and 2D arrays for y
+        if y.ndim == 1:
+            # Single channel - reshape to 2D
+            y_list = [[val] for val in y.tolist()]
+        else:
+            # Multiple channels
+            y_list = y.tolist()
+        
+        self.history_y.extend(y_list)
+        
         # Keep buffer to last 5 seconds
         fs = self.rateSpin.value()
         max_samples = int(max(5 * fs, 2 * fs * self.avgMsSpin.value() / 1000))
         if len(self.history_t) > max_samples:
             self.history_t = self.history_t[-max_samples:]
             self.history_y = self.history_y[-max_samples:]
+        
         self.update_plot()
         self.update_statistics()
 
@@ -542,10 +624,19 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         else:
             arr_y_filtered = arr_y
         
+        # Update time domain plot
+        self.update_time_plot(arr_t, arr_y_filtered)
+        
+        # Update frequency domain plot if spectrum curves exist
+        if hasattr(self, 'spectrum_curves') and self.spectrum_curves:
+            self.update_spectrum_plot(arr_t, arr_y_filtered)
+
+    def update_time_plot(self, arr_t, arr_y):
+        """Update the time domain plot."""
         # X axis is time in ms
         for i, curve in enumerate(self.curves):
             if self.plotVisibilityChecks[i].isChecked():
-                curve.setData(arr_t, arr_y_filtered[:, i])
+                curve.setData(arr_t, arr_y[:, i])
                 curve.show()
             else:
                 curve.hide()
@@ -554,6 +645,87 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.plot.enableAutoRange()
         else:
             self.plot.setYRange(self.minVoltSpin.value(), self.maxVoltSpin.value())
+
+    def update_spectrum_plot(self, arr_t, arr_y):
+        """Update the frequency domain plot using FFT."""
+        if len(arr_t) < 2:
+            return
+            
+        # Calculate sampling frequency
+        dt_ms = np.mean(np.diff(arr_t))  # Average time step in ms
+        fs = 1000.0 / dt_ms  # Convert to Hz
+        
+        # Determine FFT size
+        fft_size_str = self.fftSizeCombo.currentText()
+        if fft_size_str == "Auto":
+            # Use next power of 2 for efficiency, but limit to available data
+            available_samples = len(arr_y)
+            if available_samples > 1:
+                fft_size = min(available_samples, 2**int(np.log2(available_samples)))
+            else:
+                fft_size = available_samples
+            fft_size = max(fft_size, 32)  # Minimum size
+        else:
+            fft_size = int(fft_size_str)
+            fft_size = min(fft_size, len(arr_y))  # Can't be larger than available data
+        
+        if fft_size < 32:
+            return  # Too few samples for meaningful FFT
+            
+        # Use the most recent data for FFT
+        recent_data = arr_y[-fft_size:]
+        
+        # Select window function
+        window_type = self.fftWindowCombo.currentText().lower()
+        if window_type == "hanning":
+            window = np.hanning(fft_size)
+        elif window_type == "hamming":
+            window = np.hamming(fft_size)
+        elif window_type == "blackman":
+            window = np.blackman(fft_size)
+        else:  # Rectangle
+            window = np.ones(fft_size)
+        
+        for i, spectrum_curve in enumerate(self.spectrum_curves):
+            if i < len(self.plotVisibilityChecks) and self.plotVisibilityChecks[i].isChecked():
+                # Apply window to the signal
+                windowed_signal = recent_data[:, i] * window
+                
+                # Compute FFT
+                fft_result = np.fft.rfft(windowed_signal)
+                
+                # Compute power spectral density
+                psd = np.abs(fft_result) ** 2
+                
+                # Normalize by window power and sampling frequency
+                window_power = np.sum(window**2)
+                psd = psd / (fs * window_power)
+                
+                # Convert to dB (avoid log of zero)
+                psd_db = 10 * np.log10(np.maximum(psd, 1e-12))
+                
+                # Frequency axis
+                freqs = np.fft.rfftfreq(fft_size, d=dt_ms/1000.0)  # Convert dt to seconds
+                
+                # Limit frequency range based on user setting
+                max_freq = self.maxFreqSpin.value()
+                freq_mask = freqs <= max_freq
+                
+                # Set data
+                freqs_plot = freqs[freq_mask]
+                psd_plot = psd_db[freq_mask]
+                
+                if len(freqs_plot) > 0 and len(psd_plot) > 0:
+                    spectrum_curve.setData(freqs_plot, psd_plot)
+                    spectrum_curve.show()
+                else:
+                    spectrum_curve.hide()
+            else:
+                spectrum_curve.hide()
+        
+        # Auto-scale spectrum plot
+        if self.autoScaleCheck.isChecked():
+            self.spectrum_plot.enableAutoRange()
 
     def update_plot_visibility(self):
         self.update_plot()

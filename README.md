@@ -1,11 +1,13 @@
 # NI DAQ Reader
 
-A Python application for real-time data acquisition from National Instruments (NI) USB-6211 and similar NI-DAQmx devices. This project provides both a high-level Python wrapper for NI-DAQmx hardware and a complete GUI application for data visualization and logging.
+A Python application for real-time data acquisition from National Instruments (NI) USB-6211 and similar NI-DAQmx devices. This project provides both a high-level Python wrapper for NI-DAQmx hardware and a complete GUI application for data visualization, frequency analysis, and logging.
 
 ## Features
 
 - **Real-time data acquisition** from multiple analog input channels
-- **Live plotting** with customizable colors and legends
+- **Dual-domain visualization** with tabbed Time and Spectrum Analyzer views
+- **Live frequency filtering** with multiple filter types (low-pass, high-pass, band-pass, band-stop, notch)
+- **FFT spectrum analysis** with configurable windowing functions and frequency ranges
 - **Device auto-detection** and hot-plug support
 - **Statistics display** (min, max, mean for each channel)
 - **Data export** to CSV with metadata
@@ -39,6 +41,11 @@ A Python application for real-time data acquisition from National Instruments (N
 2. Install Python dependencies:
    ```bash
    pip install -r requirements.txt
+   ```
+
+   **Optional**: For frequency filtering functionality, install scipy:
+   ```bash
+   pip install scipy
    ```
 
 3. Ensure your NI device is connected and recognized by the system
@@ -103,6 +110,7 @@ finally:
 
 - **`niDAQ.py`** - Main DAQ wrapper classes (see detailed documentation below)
 - **`DAQMainWindow.py`** - Complete GUI application window with all UI components
+- **`freq_filters.py`** - Digital signal processing library with frequency filtering functions
 - **`main.py`** - Application entry point
 - **`requirements.txt`** - Python package dependencies
 - **`pyproject.toml`** - Project configuration
@@ -221,6 +229,67 @@ finally:
     reader.close()
 ```
 
+## Frequency Filtering and Signal Processing
+
+The application includes a comprehensive digital signal processing library (`freq_filters.py`) for real-time frequency filtering:
+
+### Available Filter Types
+
+```python
+from freq_filters import low_pass, high_pass, band_pass, band_stop, notch_50hz, notch_60hz
+
+# Low-pass filter (remove high frequencies)
+filtered_signal = low_pass(signal, time_ms, cutoff_hz=100, order=4)
+
+# High-pass filter (remove low frequencies)  
+filtered_signal = high_pass(signal, time_ms, cutoff_hz=10, order=4)
+
+# Band-pass filter (keep frequencies in range)
+filtered_signal = band_pass(signal, time_ms, low_cutoff=10, high_cutoff=100, order=4)
+
+# Band-stop filter (remove frequencies in range)
+filtered_signal = band_stop(signal, time_ms, low_cutoff=45, high_cutoff=55, order=4)
+
+# Power line noise removal
+filtered_signal = notch_50hz(signal, time_ms, order=4)  # For 50Hz power systems
+filtered_signal = notch_60hz(signal, time_ms, order=4)  # For 60Hz power systems
+```
+
+### Filter Parameters
+
+- **`signal`**: Input data as numpy array (N, C) where N=samples, C=channels
+- **`time_ms`**: Time array in milliseconds for accurate frequency calculation
+- **`cutoff_hz`**: Cutoff frequency in Hz
+- **`order`**: Filter order (1-10), higher order = steeper rolloff
+- **Returns**: Filtered signal with same shape as input
+
+### GUI Integration
+
+The frequency filtering is seamlessly integrated into the GUI:
+- **Real-time filtering** applied to incoming data
+- **Filter controls** in the right panel for easy adjustment
+- **Visual feedback** showing current filter status and parameters
+- **Statistics and spectrum** computed on filtered data when enabled
+
+## Spectrum Analysis
+
+The Spectrum Analyzer tab provides professional frequency domain analysis:
+
+### FFT Analysis Features
+
+- **Real-time FFT** computation with configurable parameters
+- **Window functions** to reduce spectral leakage (Hanning, Hamming, Blackman, Rectangle)
+- **Power spectral density** calculation with proper normalization
+- **Frequency range limiting** for focused analysis
+- **Logarithmic scaling** in dB for professional presentation
+
+### Usage Tips
+
+1. **Window Selection**: Use Hanning or Hamming for general signals, Blackman for high dynamic range
+2. **FFT Size**: Larger sizes provide better frequency resolution but slower updates
+3. **Frequency Range**: Set to focus on your signal's frequency content
+4. **Filtering**: Apply filters to see their effect in both time and frequency domains
+
 ## GUI Application Features
 
 The main GUI application (`DAQMainWindow.py`) provides:
@@ -232,8 +301,26 @@ The main GUI application (`DAQMainWindow.py`) provides:
 - **Statistics Table** - Real-time min/max/mean values for each active channel
 
 ### Right Panel - Visualization and Data Management
-- **Live Plot** - Real-time multi-channel plotting with customizable colors
-- **Plot Controls** - Auto-scaling, channel visibility toggles, legend
+
+#### Tabbed Plot Interface
+- **Time Analyzer Tab** - Real-time amplitude vs time plotting
+- **Spectrum Analyzer Tab** - Power spectral density vs frequency using FFT
+
+#### Real-time Frequency Filtering
+- **Filter Types**: Low-pass, High-pass, Band-pass, Band-stop, 50Hz/60Hz notch
+- **Configurable Parameters**: Cutoff frequencies, filter order (1-10)
+- **Real-time Application**: Filters apply to both time and frequency domain plots
+- **Visual Status**: Real-time filter status indicator
+
+#### Spectrum Analysis Controls
+- **FFT Window Functions**: Hanning, Hamming, Blackman, Rectangle
+- **FFT Size**: Auto or manual selection (256, 512, 1024, 2048, 4096 points)
+- **Frequency Range**: Configurable maximum frequency display
+- **Power Scale**: Logarithmic scale in dB for professional analysis
+
+#### Plot Controls and Data Management
+- **Auto-scaling** and manual range controls
+- **Channel visibility** toggles with color-coded legends
 - **File Management** - Directory selection and CSV export with metadata
 - **Status Display** - Connection status and operation feedback
 
@@ -242,6 +329,7 @@ The main GUI application (`DAQMainWindow.py`) provides:
 - **Thread-safe Operation** - Non-blocking data acquisition using QThread workers
 - **Data Persistence** - Automatic accumulation of all acquired samples
 - **Professional UI** - Modern interface with proper error handling
+- **Dual-domain Analysis** - Simultaneous time and frequency domain visualization
 
 ## Troubleshooting
 
@@ -256,11 +344,15 @@ The main GUI application (`DAQMainWindow.py`) provides:
    - Install: `pip install nidaqmx`
    - Ensure NI-DAQmx runtime is installed
 
-3. **Permission errors**
+3. **Filtering unavailable message**
+   - Install scipy for frequency filtering: `pip install scipy`
+   - Restart the application after installation
+
+4. **Permission errors**
    - Run as administrator (Windows) or with appropriate permissions
    - Check if another application is using the device
 
-4. **Data acquisition errors**
+5. **Data acquisition errors**
    - Verify voltage range matches your signal levels
    - Check sampling rate is supported by your device
    - Ensure selected channels exist on your device
