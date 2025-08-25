@@ -1,0 +1,291 @@
+# NI DAQ Reader
+
+A Python application for real-time data acquisition from National Instruments (NI) USB-6211 and similar NI-DAQmx devices. This project provides both a high-level Python wrapper for NI-DAQmx hardware and a complete GUI application for data visualization and logging.
+
+## Features
+
+- **Real-time data acquisition** from multiple analog input channels
+- **Live plotting** with customizable colors and legends
+- **Device auto-detection** and hot-plug support
+- **Statistics display** (min, max, mean for each channel)
+- **Data export** to CSV with metadata
+- **Configurable sampling rates** and voltage ranges
+- **Rolling average** and downsampling options
+- **Professional GUI** built with PySide6 and pyqtgraph
+
+## Prerequisites
+
+### Required Software
+
+1. **NI-DAQmx Driver**: Download and install from [NI Device Drivers](https://www.ni.com/en/support/downloads/drivers/download.ni-device-drivers.html)
+   - This is essential for communicating with NI hardware
+   - Choose the appropriate version for your operating system
+
+2. **Python 3.8+** with required packages (see requirements.txt)
+
+### Required Hardware
+
+- National Instruments USB-6211 or compatible NI-DAQmx device
+- Analog input signals to measure
+
+## Installation
+
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/sheramir/read_daq.git
+   cd read_daq
+   ```
+
+2. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Ensure your NI device is connected and recognized by the system
+
+## Quick Start
+
+### Running the GUI Application
+
+```bash
+python main.py
+```
+
+The application will automatically detect connected NI devices and allow you to:
+- Select analog input channels (AI0-AI15)
+- Configure sampling parameters
+- Start real-time data acquisition
+- View live plots with statistics
+- Save data to CSV files
+
+### Using the NIDAQReader Class Programmatically
+
+```python
+from niDAQ import NIDAQReader, NIDAQSettings
+
+# Configure acquisition settings
+settings = NIDAQSettings(
+    device_name="Dev1",
+    channels=["ai0", "ai1"],
+    sampling_rate_hz=200.0,
+    v_min=-1.0,
+    v_max=3.5,
+    terminal_config="RSE"
+)
+
+# Create reader and start acquisition
+reader = NIDAQReader(settings)
+reader.start()
+
+try:
+    # Read 100 samples per channel
+    timestamps_ms, voltages = reader.read_data(number_of_samples_per_channel=100)
+    
+    # Optional: apply 10ms rolling average
+    timestamps_ms, voltages = reader.read_data(
+        number_of_samples_per_channel=200, 
+        average_ms=10
+    )
+    
+    # Plot the data
+    reader.plot_data()
+    
+    # Save to file
+    reader.save_data("measurement.csv")
+    
+finally:
+    reader.close()
+```
+
+## File Structure
+
+### Core Files
+
+- **`niDAQ.py`** - Main DAQ wrapper classes (see detailed documentation below)
+- **`DAQMainWindow.py`** - Complete GUI application window with all UI components
+- **`main.py`** - Application entry point
+- **`requirements.txt`** - Python package dependencies
+- **`pyproject.toml`** - Project configuration
+
+### Example and Utility Files
+
+- **`get_daq_examples.py`** - Example usage patterns for the NIDAQReader class
+- **`show_devices.py`** - Utility to list available NI devices
+- **Various test files** - Development and testing scripts
+
+## NIDAQReader Class Documentation
+
+The `NIDAQReader` class in `niDAQ.py` is the core component for interfacing with NI-DAQmx hardware.
+
+### Key Classes
+
+#### `NIDAQSettings`
+Configuration dataclass for DAQ parameters:
+
+```python
+@dataclass
+class NIDAQSettings:
+    device_name: str = "Dev1"           # NI device identifier
+    sampling_rate_hz: float = 200.0     # Sampling frequency
+    v_min: float = -1.0                 # Minimum input voltage
+    v_max: float = 3.5                  # Maximum input voltage
+    terminal_config: str = "RSE"        # Input configuration
+    channels: List[str] = ["ai0"]       # Analog input channels
+    adc_bits: int = 16                  # ADC resolution
+```
+
+**Terminal Configuration Options:**
+- `"RSE"` - Referenced Single-Ended
+- `"NRSE"` - Non-Referenced Single-Ended  
+- `"DIFF"` - Differential
+- `"PSEUDO-DIFF"` - Pseudo-Differential
+
+#### `NIDAQReader`
+Main class for data acquisition operations:
+
+##### Core Methods
+
+**Lifecycle Management:**
+- `start()` - Initialize and start continuous acquisition
+- `stop()` / `close()` - Stop acquisition and release hardware resources
+
+**Data Acquisition:**
+- `read_data(number_of_samples_per_channel, average_ms=None, *, rolling_avg=True, timeout=10.0, accumulate=True)`
+  - Returns: `(timestamps_ms, voltages)` as numpy arrays
+  - `timestamps_ms`: (N,) array of timestamps in milliseconds
+  - `voltages`: (N, C) array where N=samples, C=channels
+  - `average_ms`: Optional rolling average window in milliseconds
+  - `rolling_avg`: True for moving average, False for downsampling
+
+**Device Discovery:**
+- `list_devices()` - Static method to enumerate available NI devices
+- `list_ai_channels(device_name)` - List available analog input channels
+
+**Data Management:**
+- `save_data(filename, format="csv", include_json_sidecar=True)` - Export data with metadata
+- `print_data(max_rows=None, time_decimals=3, value_decimals=6)` - Console output
+- `plot_data(channels=None, separate=False, auto_ylim=False)` - Static plotting
+- `plot_realtime(...)` - Live animated plotting
+
+##### Dynamic Configuration
+Settings can be changed during operation:
+- `set_input(channels)` - Change active channels
+- `set_terminal_config(terminal_config)` - Change input configuration
+- `set_voltage_range(v_min, v_max)` - Adjust voltage range
+- `set_sampling(rate_hz)` - Modify sampling rate
+
+### Example Usage Patterns
+
+#### Basic Single-Shot Measurement
+```python
+settings = NIDAQSettings(channels=["ai0", "ai1"], sampling_rate_hz=1000)
+with NIDAQReader(settings) as reader:
+    reader.start()
+    t, y = reader.read_data(1000)  # 1 second of data
+    print(f"Acquired {len(t)} samples from {y.shape[1]} channels")
+```
+
+#### Continuous Monitoring with Averaging
+```python
+reader = NIDAQReader(settings)
+reader.start()
+try:
+    while monitoring:
+        # Get 100ms worth of data, averaged over 10ms windows
+        t, y = reader.read_data(
+            number_of_samples_per_channel=100,
+            average_ms=10,
+            rolling_avg=False  # Downsample for efficiency
+        )
+        # Process data...
+finally:
+    reader.save_data("session.csv")
+    reader.close()
+```
+
+#### Real-time Plotting
+```python
+reader = NIDAQReader(settings)
+reader.start()
+try:
+    # Launch real-time plot (blocking)
+    reader.plot_realtime(
+        channels=["ai0", "ai1"],
+        interval_ms=50,      # 50ms update rate
+        window_ms=5000,      # 5 second window
+        rolling_avg_ms=20,   # 20ms smoothing
+        separate=True,       # Separate subplots
+        auto_ylim=True       # Auto-scale Y axis
+    )
+finally:
+    reader.close()
+```
+
+## GUI Application Features
+
+The main GUI application (`DAQMainWindow.py`) provides:
+
+### Left Panel - Acquisition Settings
+- **Device Selection** - Automatic device detection with hot-plug support
+- **Channel Configuration** - Enable/disable up to 16 analog inputs (AI0-AI15)
+- **Input Settings** - Terminal configuration, voltage range, sampling rate
+- **Statistics Table** - Real-time min/max/mean values for each active channel
+
+### Right Panel - Visualization and Data Management
+- **Live Plot** - Real-time multi-channel plotting with customizable colors
+- **Plot Controls** - Auto-scaling, channel visibility toggles, legend
+- **File Management** - Directory selection and CSV export with metadata
+- **Status Display** - Connection status and operation feedback
+
+### Key Features
+- **Hot-plug Support** - Automatically detects when devices are connected/disconnected
+- **Thread-safe Operation** - Non-blocking data acquisition using QThread workers
+- **Data Persistence** - Automatic accumulation of all acquired samples
+- **Professional UI** - Modern interface with proper error handling
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"No device found"**
+   - Ensure NI-DAQmx drivers are installed
+   - Check device connection and power
+   - Verify device appears in NI MAX (Measurement & Automation Explorer)
+
+2. **Import errors for nidaqmx**
+   - Install: `pip install nidaqmx`
+   - Ensure NI-DAQmx runtime is installed
+
+3. **Permission errors**
+   - Run as administrator (Windows) or with appropriate permissions
+   - Check if another application is using the device
+
+4. **Data acquisition errors**
+   - Verify voltage range matches your signal levels
+   - Check sampling rate is supported by your device
+   - Ensure selected channels exist on your device
+
+## Development
+
+### Project Structure
+- Uses modern Python practices with type hints and dataclasses
+- PySide6 for cross-platform GUI development
+- pyqtgraph for high-performance real-time plotting
+- Modular design separating DAQ logic from GUI components
+
+### Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with appropriate tests
+4. Submit a pull request
+
+## License
+
+This project is available under an open source license. See the repository for specific license terms.
+
+## Support
+
+For issues related to:
+- **Hardware setup**: Consult NI documentation and support
+- **Software bugs**: Open an issue on this repository
+- **Feature requests**: Submit an issue with detailed requirements
