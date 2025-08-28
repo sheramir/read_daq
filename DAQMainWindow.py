@@ -3,6 +3,7 @@ import pyqtgraph as pg
 import numpy as np
 import csv
 from niDAQ import NIDAQReader, NIDAQSettings
+from settings_manager import SettingsManager
 
 # Try to import filtering functions
 try:
@@ -73,12 +74,30 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         # Initialize plot curves lists
         self.curves = []
         self.spectrum_curves = []
+        
+        # Initialize settings manager and load settings
+        self.settings_manager = SettingsManager()
+        self.app_settings = self.settings_manager.load_settings()
+        
+        # Initialize per-channel ranges from loaded settings
+        self.channel_ranges = self.app_settings.get("channel_ranges", {})
+        
         self.setup_ui()
+        
+        # Apply loaded settings to GUI BEFORE connecting auto-save signals
+        self.apply_settings_to_gui()
+        
+        # Now setup signals (including auto-save)
         self.setup_signals()
+        
         # Initialize filter UI state (only if filters available)
         if FILTERS_AVAILABLE:
             self.on_filter_type_changed()
         self.detect_devices()
+        
+        # Restore device selection after device detection
+        self.restore_device_selection()
+        
         self.start_device_polling()
 
     def setup_ui(self):
@@ -139,6 +158,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         
         # Initialize per-channel ranges storage
         self.channel_ranges = {}  # Will store {channel: (v_min, v_max)} for custom ranges
+        
         # Control buttons
         self.startBtn = QtWidgets.QPushButton("Start")
         self.stopBtn = QtWidgets.QPushButton("Stop")
@@ -331,6 +351,163 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         main_layout.addWidget(right, 4)  # Right panel takes 4 parts (80% of width)
         self.setCentralWidget(main_widget)
 
+    def apply_settings_to_gui(self):
+        """Apply loaded settings to GUI controls."""
+        try:
+            # Apply device settings
+            if self.app_settings["input_config"]:
+                idx = self.inputConfigCombo.findText(self.app_settings["input_config"])
+                if idx >= 0:
+                    self.inputConfigCombo.setCurrentIndex(idx)
+            
+            # Apply voltage range settings
+            self.maxVoltSpin.setValue(self.app_settings["max_voltage"])
+            self.minVoltSpin.setValue(self.app_settings["min_voltage"])
+            
+            # Apply sampling settings
+            self.rateSpin.setValue(self.app_settings["sampling_rate"])
+            self.samplesSpin.setValue(self.app_settings["samples_to_read"])
+            self.avgMsSpin.setValue(self.app_settings["average_time_span"])
+            
+            # Apply channel selections
+            for i, cb in enumerate(self.aiChecks):
+                cb.setChecked(i in self.app_settings["selected_channels"])
+            
+            # Apply channel visibility
+            for i, checked in enumerate(self.app_settings["channel_visibility"][:16]):
+                if i < len(self.plotVisibilityChecks):
+                    self.plotVisibilityChecks[i].setChecked(checked)
+            
+            # Apply plot settings
+            self.autoScaleCheck.setChecked(self.app_settings["auto_scale"])
+            self.plot_tabs.setCurrentIndex(self.app_settings["active_tab"])
+            
+            # Apply spectrum analyzer settings
+            idx = self.fftWindowCombo.findText(self.app_settings["fft_window"])
+            if idx >= 0:
+                self.fftWindowCombo.setCurrentIndex(idx)
+            
+            idx = self.fftSizeCombo.findText(self.app_settings["fft_size"])
+            if idx >= 0:
+                self.fftSizeCombo.setCurrentIndex(idx)
+            
+            self.maxFreqSpin.setValue(self.app_settings["max_frequency"])
+            
+            # Apply filter settings (if available)
+            if FILTERS_AVAILABLE:
+                self.filterEnableCheck.setChecked(self.app_settings["filter_enabled"])
+                
+                idx = self.filterTypeCombo.findText(self.app_settings["filter_type"])
+                if idx >= 0:
+                    self.filterTypeCombo.setCurrentIndex(idx)
+                
+                self.filterCutoff1Spin.setValue(self.app_settings["filter_cutoff1"])
+                self.filterCutoff2Spin.setValue(self.app_settings["filter_cutoff2"])
+                self.filterOrderSpin.setValue(self.app_settings["filter_order"])
+            
+            # Apply file settings
+            if self.app_settings["save_directory"]:
+                self.save_directory = self.app_settings["save_directory"]
+                self.saveDirLabel.setText(self.app_settings["save_directory"])
+            
+            if self.app_settings["last_filename"]:
+                self.saveNameEdit.setText(self.app_settings["last_filename"])
+            
+            self.statusBar.setText("Settings loaded successfully.")
+            
+        except Exception as e:
+            print(f"Error applying settings to GUI: {e}")
+            self.statusBar.setText("Error loading some settings.")
+
+    def collect_settings_from_gui(self):
+        """Collect current GUI settings into a dictionary."""
+        # Get selected channels
+        selected_channels = [i for i, cb in enumerate(self.aiChecks) if cb.isChecked()]
+        
+        # Get channel visibility
+        channel_visibility = [cb.isChecked() for cb in self.plotVisibilityChecks]
+        # Pad to 16 channels if needed
+        while len(channel_visibility) < 16:
+            channel_visibility.append(False)
+        
+        settings = {
+            # Device settings
+            "device_name": self.deviceSelector.currentText() if self.deviceSelector.count() > 0 else "",
+            "input_config": self.inputConfigCombo.currentText(),
+            
+            # Voltage range settings
+            "max_voltage": self.maxVoltSpin.value(),
+            "min_voltage": self.minVoltSpin.value(),
+            
+            # Sampling settings
+            "sampling_rate": self.rateSpin.value(),
+            "samples_to_read": self.samplesSpin.value(),
+            "average_time_span": self.avgMsSpin.value(),
+            
+            # Channel settings
+            "selected_channels": selected_channels,
+            "channel_visibility": channel_visibility,
+            "channel_ranges": self.channel_ranges,
+            
+            # Plot settings
+            "auto_scale": self.autoScaleCheck.isChecked(),
+            "active_tab": self.plot_tabs.currentIndex(),
+            
+            # Spectrum analyzer settings
+            "fft_window": self.fftWindowCombo.currentText(),
+            "fft_size": self.fftSizeCombo.currentText(),
+            "max_frequency": self.maxFreqSpin.value(),
+            
+            # File settings
+            "save_directory": self.save_directory or "",
+            "last_filename": self.saveNameEdit.text()
+        }
+        
+        # Add filter settings if available
+        if FILTERS_AVAILABLE:
+            settings.update({
+                "filter_enabled": self.filterEnableCheck.isChecked(),
+                "filter_type": self.filterTypeCombo.currentText(),
+                "filter_cutoff1": self.filterCutoff1Spin.value(),
+                "filter_cutoff2": self.filterCutoff2Spin.value(),
+                "filter_order": self.filterOrderSpin.value(),
+            })
+        else:
+            # Keep previous filter settings if filters not available
+            settings.update({
+                "filter_enabled": self.app_settings.get("filter_enabled", False),
+                "filter_type": self.app_settings.get("filter_type", "Low Pass"),
+                "filter_cutoff1": self.app_settings.get("filter_cutoff1", 100.0),
+                "filter_cutoff2": self.app_settings.get("filter_cutoff2", 200.0),
+                "filter_order": self.app_settings.get("filter_order", 4),
+            })
+        
+        return settings
+
+    def save_current_settings(self):
+        """Save current GUI settings to file."""
+        try:
+            self.app_settings = self.collect_settings_from_gui()
+            self.app_settings = self.settings_manager.validate_settings(self.app_settings)
+            success = self.settings_manager.save_settings(self.app_settings)
+            if not success:
+                self.statusBar.setText("Warning: Could not save settings.")
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+            self.statusBar.setText("Error saving settings.")
+
+    def closeEvent(self, event):
+        """Handle application close event."""
+        # Save settings before closing
+        self.save_current_settings()
+        
+        # Stop acquisition if running
+        if self.worker and self.worker.isRunning():
+            self.stop_acquisition()
+        
+        # Accept the close event
+        event.accept()
+
     def setup_signals(self):
         self.startBtn.clicked.connect(self.start_acquisition)
         self.stopBtn.clicked.connect(self.stop_acquisition)
@@ -352,6 +529,44 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.filterCutoff1Spin.valueChanged.connect(self.on_filter_settings_changed)
             self.filterCutoff2Spin.valueChanged.connect(self.on_filter_settings_changed)
             self.filterOrderSpin.valueChanged.connect(self.on_filter_settings_changed)
+        
+        # Connect settings auto-save signals
+        self.setup_settings_autosave()
+
+    def setup_settings_autosave(self):
+        """Connect GUI controls to auto-save settings when changed."""
+        # Device and sampling settings
+        self.deviceSelector.currentTextChanged.connect(self.save_current_settings)
+        self.inputConfigCombo.currentTextChanged.connect(self.save_current_settings)
+        self.maxVoltSpin.valueChanged.connect(self.save_current_settings)
+        self.minVoltSpin.valueChanged.connect(self.save_current_settings)
+        self.rateSpin.valueChanged.connect(self.save_current_settings)
+        self.samplesSpin.valueChanged.connect(self.save_current_settings)
+        self.avgMsSpin.valueChanged.connect(self.save_current_settings)
+        
+        # Channel selection
+        for cb in self.aiChecks:
+            cb.stateChanged.connect(self.save_current_settings)
+        
+        # Plot settings
+        self.autoScaleCheck.stateChanged.connect(self.save_current_settings)
+        self.plot_tabs.currentChanged.connect(self.save_current_settings)
+        
+        # Spectrum analyzer settings
+        self.fftWindowCombo.currentTextChanged.connect(self.save_current_settings)
+        self.fftSizeCombo.currentTextChanged.connect(self.save_current_settings)
+        self.maxFreqSpin.valueChanged.connect(self.save_current_settings)
+        
+        # Filter settings (if available)
+        if FILTERS_AVAILABLE:
+            self.filterEnableCheck.stateChanged.connect(self.save_current_settings)
+            self.filterTypeCombo.currentTextChanged.connect(self.save_current_settings)
+            self.filterCutoff1Spin.valueChanged.connect(self.save_current_settings)
+            self.filterCutoff2Spin.valueChanged.connect(self.save_current_settings)
+            self.filterOrderSpin.valueChanged.connect(self.save_current_settings)
+        
+        # File settings
+        self.saveNameEdit.textChanged.connect(self.save_current_settings)
 
     def detect_devices(self):
         from niDAQ import NIDAQReader
@@ -367,6 +582,16 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.statusBar.setText("No device found (waiting for connection)...")
         # store snapshot
         self._last_devices = tuple(devices)
+
+    def restore_device_selection(self):
+        """Restore the selected device from settings after device detection."""
+        if self.app_settings["device_name"]:
+            idx = self.deviceSelector.findText(self.app_settings["device_name"])
+            if idx >= 0:
+                self.deviceSelector.setCurrentIndex(idx)
+                self.statusBar.setText(f"Restored device: {self.app_settings['device_name']}")
+            else:
+                self.statusBar.setText(f"Previously used device '{self.app_settings['device_name']}' not found")
 
     def start_device_polling(self):
         """Begin periodic polling for newly connected / removed NI devices.
@@ -739,6 +964,8 @@ class DAQMainWindow(QtWidgets.QMainWindow):
 
     def update_plot_visibility(self):
         self.update_plot()
+        # Save settings when visibility changes
+        self.save_current_settings()
 
     def setup_stats_table(self, channels):
         """Initialize the statistics table for the given channels."""
@@ -853,6 +1080,9 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.saveDirLabel.setText(display_path)
             self.saveDirLabel.setToolTip(directory)  # Show full path on hover
             self.statusBar.setText(f"Save directory set to: {directory}")
+            
+            # Save settings after directory change
+            self.save_current_settings()
 
     def configure_channel_gains(self):
         """Open dialog to configure individual channel voltage ranges."""
@@ -860,6 +1090,9 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.channel_ranges = dialog.get_channel_ranges()
             self.statusBar.setText("Channel gain configuration updated.")
+            
+            # Save settings after channel gain changes
+            self.save_current_settings()
 
     def on_worker_error(self, msg):
         self.statusBar.setText(f"DAQ error: {msg}")
