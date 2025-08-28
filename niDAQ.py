@@ -85,6 +85,51 @@ class NIDAQSettings:
     terminal_config: str = "RSE"
     channels: List[str] = field(default_factory=lambda: ["ai0"])
     adc_bits: int = 16          # <-- add ADC resolution (nominal)
+    # Per-channel voltage ranges (optional) - if provided, overrides v_min/v_max for specific channels
+    channel_ranges: Optional[Dict[str, Tuple[float, float]]] = None
+    
+    def get_channel_range(self, channel: str) -> Tuple[float, float]:
+        """Get the voltage range for a specific channel.
+        
+        Returns:
+            Tuple of (v_min, v_max) for the channel
+        """
+        if self.channel_ranges and channel in self.channel_ranges:
+            return self.channel_ranges[channel]
+        return (self.v_min, self.v_max)
+    
+    def set_channel_range(self, channel: str, v_min: float, v_max: float) -> None:
+        """Set the voltage range for a specific channel.
+        
+        Args:
+            channel: Channel name (e.g., "ai0")
+            v_min: Minimum voltage
+            v_max: Maximum voltage
+        """
+        if self.channel_ranges is None:
+            self.channel_ranges = {}
+        self.channel_ranges[channel] = (v_min, v_max)
+    
+    @staticmethod
+    def get_common_ranges() -> Dict[str, Tuple[float, float]]:
+        """Get common voltage ranges for the NI USB-6211.
+        
+        Returns:
+            Dictionary of range names to (v_min, v_max) tuples
+        """
+        return {
+            "±10V": (-10.0, 10.0),
+            "±5V": (-5.0, 5.0),
+            "±2V": (-2.0, 2.0),
+            "±1V": (-1.0, 1.0),
+            "±0.5V": (-0.5, 0.5),
+            "±0.2V": (-0.2, 0.2),
+            "±0.1V": (-0.1, 0.1),
+            "0-10V": (0.0, 10.0),
+            "0-5V": (0.0, 5.0),
+            "0-2V": (0.0, 2.0),
+            "0-1V": (0.0, 1.0),
+        }
 
 
 class NIDAQReader:
@@ -210,10 +255,11 @@ class NIDAQReader:
 
         for ch in self.settings.channels:
             physical = f"{self.settings.device_name}/{ch}"
+            v_min, v_max = self.settings.get_channel_range(ch)
             self._task.ai_channels.add_ai_voltage_chan(
                 physical_channel=physical,
-                min_val=self.settings.v_min,
-                max_val=self.settings.v_max,
+                min_val=v_min,
+                max_val=v_max,
                 terminal_config=term_cfg,
             )
 

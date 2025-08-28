@@ -131,6 +131,14 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.aiChecks.append(cb)
             grid.addWidget(cb, i // 4, i % 4)
         left_layout.addLayout(grid)
+        
+        # Per-channel gain configuration button
+        self.configGainBtn = QtWidgets.QPushButton("Configure Channel Gains")
+        self.configGainBtn.setToolTip("Set individual voltage ranges for each channel")
+        left_layout.addWidget(self.configGainBtn)
+        
+        # Initialize per-channel ranges storage
+        self.channel_ranges = {}  # Will store {channel: (v_min, v_max)} for custom ranges
         # Control buttons
         self.startBtn = QtWidgets.QPushButton("Start")
         self.stopBtn = QtWidgets.QPushButton("Stop")
@@ -142,8 +150,8 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         stats_group = QtWidgets.QGroupBox("Signal Statistics")
         stats_layout = QtWidgets.QVBoxLayout(stats_group)
         self.stats_table = QtWidgets.QTableWidget()
-        self.stats_table.setColumnCount(4)
-        self.stats_table.setHorizontalHeaderLabels(["Channel", "Min (V)", "Max (V)", "Mean (V)"])
+        self.stats_table.setColumnCount(5)
+        self.stats_table.setHorizontalHeaderLabels(["Channel", "Range", "Min (V)", "Max (V)", "Mean (V)"])
         self.stats_table.horizontalHeader().setStretchLastSection(True)
         self.stats_table.setMaximumHeight(200)
         self.stats_table.setAlternatingRowColors(True)
@@ -328,6 +336,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.stopBtn.clicked.connect(self.stop_acquisition)
         self.saveBtn.clicked.connect(self.save_data)
         self.browseDirBtn.clicked.connect(self.browse_save_directory)
+        self.configGainBtn.clicked.connect(self.configure_channel_gains)
         for cb in self.plotVisibilityChecks:
             cb.stateChanged.connect(self.update_plot_visibility)
         
@@ -514,6 +523,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
                 terminal_config=self.inputConfigCombo.currentText(),
                 v_min=self.minVoltSpin.value(),
                 v_max=self.maxVoltSpin.value(),
+                channel_ranges=self.channel_ranges if self.channel_ranges else None
             )
             samples_per_read = self.samplesSpin.value()
             avg_ms = self.avgMsSpin.value()
@@ -736,10 +746,19 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         for i, channel in enumerate(channels):
             # Channel name
             self.stats_table.setItem(i, 0, QtWidgets.QTableWidgetItem(channel.upper()))
-            # Initialize with placeholder values
-            self.stats_table.setItem(i, 1, QtWidgets.QTableWidgetItem("--"))
+            
+            # Voltage range
+            if channel in self.channel_ranges:
+                v_min, v_max = self.channel_ranges[channel]
+                range_text = f"{v_min:.3f} to {v_max:.3f}V"
+            else:
+                range_text = f"{self.minVoltSpin.value():.3f} to {self.maxVoltSpin.value():.3f}V"
+            self.stats_table.setItem(i, 1, QtWidgets.QTableWidgetItem(range_text))
+            
+            # Initialize statistics with placeholder values
             self.stats_table.setItem(i, 2, QtWidgets.QTableWidgetItem("--"))
             self.stats_table.setItem(i, 3, QtWidgets.QTableWidgetItem("--"))
+            self.stats_table.setItem(i, 4, QtWidgets.QTableWidgetItem("--"))
 
     def update_statistics(self):
         """Update the statistics table with current data."""
@@ -767,9 +786,9 @@ class DAQMainWindow(QtWidgets.QMainWindow):
                 mean_val = np.mean(channel_data)
                 
                 # Update table items with 3 decimal places
-                self.stats_table.setItem(i, 1, QtWidgets.QTableWidgetItem(f"{min_val:.3f}"))
-                self.stats_table.setItem(i, 2, QtWidgets.QTableWidgetItem(f"{max_val:.3f}"))
-                self.stats_table.setItem(i, 3, QtWidgets.QTableWidgetItem(f"{mean_val:.3f}"))
+                self.stats_table.setItem(i, 2, QtWidgets.QTableWidgetItem(f"{min_val:.3f}"))
+                self.stats_table.setItem(i, 3, QtWidgets.QTableWidgetItem(f"{max_val:.3f}"))
+                self.stats_table.setItem(i, 4, QtWidgets.QTableWidgetItem(f"{mean_val:.3f}"))
 
     def save_data(self):
         # Check if directory is selected
@@ -797,6 +816,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
                 terminal_config=self.inputConfigCombo.currentText(),
                 v_min=self.minVoltSpin.value(),
                 v_max=self.maxVoltSpin.value(),
+                channel_ranges=self.channel_ranges if self.channel_ranges else None
             )
             
             # Check if we have data to save
@@ -834,9 +854,189 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.saveDirLabel.setToolTip(directory)  # Show full path on hover
             self.statusBar.setText(f"Save directory set to: {directory}")
 
+    def configure_channel_gains(self):
+        """Open dialog to configure individual channel voltage ranges."""
+        dialog = ChannelGainDialog(self.channel_ranges, self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.channel_ranges = dialog.get_channel_ranges()
+            self.statusBar.setText("Channel gain configuration updated.")
+
     def on_worker_error(self, msg):
         self.statusBar.setText(f"DAQ error: {msg}")
         self.stop_acquisition()
+
+
+class ChannelGainDialog(QtWidgets.QDialog):
+    """Dialog for configuring individual channel voltage ranges."""
+    
+    def __init__(self, current_ranges, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Channel Voltage Ranges")
+        self.setModal(True)
+        self.resize(500, 600)
+        
+        # Store current ranges
+        self.channel_ranges = current_ranges.copy() if current_ranges else {}
+        
+        # Get common ranges
+        from niDAQ import NIDAQSettings
+        self.common_ranges = NIDAQSettings.get_common_ranges()
+        
+        self.setup_ui()
+    
+    def setup_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        # Header
+        header = QtWidgets.QLabel("Configure voltage ranges for each channel individually.\n"
+                                "Smaller ranges provide better resolution for low-level signals.")
+        header.setWordWrap(True)
+        layout.addWidget(header)
+        
+        # Scroll area for channel configurations
+        scroll = QtWidgets.QScrollArea()
+        scroll_widget = QtWidgets.QWidget()
+        scroll_layout = QtWidgets.QVBoxLayout(scroll_widget)
+        
+        self.channel_widgets = {}
+        
+        # Create configuration for each channel
+        for i in range(16):
+            channel = f"ai{i}"
+            group = QtWidgets.QGroupBox(f"Channel AI{i}")
+            group_layout = QtWidgets.QHBoxLayout(group)
+            
+            # Enable checkbox
+            enable_cb = QtWidgets.QCheckBox("Custom Range")
+            enable_cb.setChecked(channel in self.channel_ranges)
+            
+            # Range selection combo
+            range_combo = QtWidgets.QComboBox()
+            range_combo.addItem("Select Range...", None)
+            for name, (v_min, v_max) in self.common_ranges.items():
+                range_combo.addItem(f"{name} ({v_min}V to {v_max}V)", (v_min, v_max))
+            range_combo.addItem("Custom...", "custom")
+            
+            # Custom range inputs
+            min_spin = QtWidgets.QDoubleSpinBox()
+            min_spin.setRange(-10.0, 10.0)
+            min_spin.setValue(-1.0)
+            min_spin.setDecimals(3)
+            min_spin.setSuffix(" V")
+            
+            max_spin = QtWidgets.QDoubleSpinBox()
+            max_spin.setRange(-10.0, 10.0)
+            max_spin.setValue(1.0)
+            max_spin.setDecimals(3)
+            max_spin.setSuffix(" V")
+            
+            # Set current values if configured
+            if channel in self.channel_ranges:
+                v_min, v_max = self.channel_ranges[channel]
+                min_spin.setValue(v_min)
+                max_spin.setValue(v_max)
+                
+                # Try to find matching preset
+                found_preset = False
+                for j in range(1, range_combo.count() - 1):  # Skip "Select Range..." and "Custom..."
+                    preset_range = range_combo.itemData(j)
+                    if preset_range and abs(preset_range[0] - v_min) < 0.001 and abs(preset_range[1] - v_max) < 0.001:
+                        range_combo.setCurrentIndex(j)
+                        found_preset = True
+                        break
+                
+                if not found_preset:
+                    range_combo.setCurrentIndex(range_combo.count() - 1)  # Custom
+            
+            # Connect signals
+            def make_range_changed(ch, combo, min_s, max_s, enable):
+                def on_range_changed():
+                    if combo.currentData() == "custom":
+                        min_s.setEnabled(True)
+                        max_s.setEnabled(True)
+                    elif combo.currentData() is not None:
+                        v_min, v_max = combo.currentData()
+                        min_s.setValue(v_min)
+                        max_s.setValue(v_max)
+                        min_s.setEnabled(False)
+                        max_s.setEnabled(False)
+                    else:
+                        min_s.setEnabled(False)
+                        max_s.setEnabled(False)
+                return on_range_changed
+            
+            def make_enable_changed(ch, combo, min_s, max_s):
+                def on_enable_changed(checked):
+                    combo.setEnabled(checked)
+                    if checked:
+                        on_range_changed = make_range_changed(ch, combo, min_s, max_s, None)()
+                    else:
+                        min_s.setEnabled(False)
+                        max_s.setEnabled(False)
+                return on_enable_changed
+            
+            range_combo.currentIndexChanged.connect(make_range_changed(channel, range_combo, min_spin, max_spin, enable_cb))
+            enable_cb.stateChanged.connect(make_enable_changed(channel, range_combo, min_spin, max_spin))
+            
+            # Initial state
+            range_combo.setEnabled(enable_cb.isChecked())
+            if enable_cb.isChecked():
+                range_combo.currentIndexChanged.emit(range_combo.currentIndex())
+            else:
+                min_spin.setEnabled(False)
+                max_spin.setEnabled(False)
+            
+            # Layout
+            group_layout.addWidget(enable_cb)
+            group_layout.addWidget(range_combo)
+            group_layout.addWidget(QtWidgets.QLabel("Min:"))
+            group_layout.addWidget(min_spin)
+            group_layout.addWidget(QtWidgets.QLabel("Max:"))
+            group_layout.addWidget(max_spin)
+            
+            scroll_layout.addWidget(group)
+            
+            # Store widgets for later access
+            self.channel_widgets[channel] = {
+                'enable': enable_cb,
+                'combo': range_combo,
+                'min': min_spin,
+                'max': max_spin
+            }
+        
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+        
+        # Buttons
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok | 
+            QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+        # Reset button
+        reset_btn = QtWidgets.QPushButton("Reset All to Default")
+        reset_btn.clicked.connect(self.reset_all)
+        layout.insertWidget(-1, reset_btn)
+    
+    def reset_all(self):
+        """Reset all channels to default (no custom range)."""
+        for widgets in self.channel_widgets.values():
+            widgets['enable'].setChecked(False)
+            widgets['combo'].setCurrentIndex(0)
+    
+    def get_channel_ranges(self):
+        """Get the configured channel ranges."""
+        ranges = {}
+        for channel, widgets in self.channel_widgets.items():
+            if widgets['enable'].isChecked():
+                v_min = widgets['min'].value()
+                v_max = widgets['max'].value()
+                if v_min < v_max:  # Sanity check
+                    ranges[channel] = (v_min, v_max)
+        return ranges
 
 if __name__ == "__main__":
     import sys

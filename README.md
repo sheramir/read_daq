@@ -5,6 +5,7 @@ A Python application for real-time data acquisition from National Instruments (N
 ## Features
 
 - **Real-time data acquisition** from multiple analog input channels
+- **Per-channel programmable gain** for optimized signal resolution
 - **Dual-domain visualization** with tabbed Time and Spectrum Analyzer views
 - **Live frequency filtering** with multiple filter types (low-pass, high-pass, band-pass, band-stop, notch)
 - **FFT spectrum analysis** with configurable windowing functions and frequency ranges
@@ -80,6 +81,10 @@ settings = NIDAQSettings(
     terminal_config="RSE"
 )
 
+# Configure per-channel gains for optimal resolution
+settings.set_channel_range("ai0", -10.0, 10.0)  # ±10V for high-voltage signal
+settings.set_channel_range("ai1", -0.1, 0.1)    # ±0.1V for low-voltage signal
+
 # Create reader and start acquisition
 reader = NIDAQReader(settings)
 reader.start()
@@ -104,6 +109,67 @@ finally:
     reader.close()
 ```
 
+## Per-Channel Programmable Gain
+
+The NI USB-6211 supports programmable gain amplifiers (PGA) for each analog input channel, allowing you to optimize signal resolution by setting appropriate voltage ranges for different signal types.
+
+### Available Voltage Ranges
+
+The USB-6211 supports the following voltage ranges:
+- **±10V, ±5V, ±2V, ±1V, ±0.5V, ±0.2V, ±0.1V** (bipolar)
+- **0-10V, 0-5V, 0-2V, 0-1V** (unipolar)
+
+### Resolution Benefits
+
+Using appropriate ranges significantly improves measurement resolution:
+
+| Range | Span | 16-bit Resolution |
+|-------|------|-------------------|
+| ±10V | 20V | 0.305 mV |
+| ±1V | 2V | 0.031 mV |
+| ±0.1V | 0.2V | 0.003 mV |
+
+### Programmatic Configuration
+
+```python
+from niDAQ import NIDAQSettings
+
+# Create settings with per-channel ranges
+settings = NIDAQSettings(
+    channels=["ai0", "ai1", "ai2", "ai3"],
+    v_min=-10.0, v_max=10.0  # Default range for unconfigured channels
+)
+
+# Configure individual channel ranges
+settings.set_channel_range("ai0", -10.0, 10.0)  # ±10V for high-voltage signal
+settings.set_channel_range("ai1", -1.0, 1.0)    # ±1V for medium signal
+settings.set_channel_range("ai2", -0.1, 0.1)    # ±0.1V for small signal
+settings.set_channel_range("ai3", 0.0, 5.0)     # 0-5V for unipolar signal
+
+# Get available preset ranges
+common_ranges = NIDAQSettings.get_common_ranges()
+print(common_ranges)  # Shows all available ranges
+
+# Check configured range for a channel
+v_min, v_max = settings.get_channel_range("ai0")
+```
+
+### GUI Configuration
+
+The GUI application includes a **"Configure Channel Gains"** button that opens a dialog for setting individual channel ranges:
+
+1. **Enable Custom Range**: Check the box for channels requiring different ranges
+2. **Select Preset**: Choose from common ranges or select "Custom"
+3. **Custom Values**: Set precise voltage limits for specialized applications
+4. **Statistics Display**: The statistics table shows the configured range for each channel
+
+### Best Practices
+
+1. **Match signal amplitude**: Use the smallest range that accommodates your signal
+2. **Leave headroom**: Allow 10-20% margin to prevent clipping
+3. **Consider noise**: Smaller ranges may amplify noise along with signal
+4. **Mixed signals**: Different channels can have completely different ranges
+
 ## File Structure
 
 ### Core Files
@@ -117,6 +183,7 @@ finally:
 
 ### Example and Utility Files
 
+- **`example_channel_gains.py`** - Demonstrates per-channel gain configuration
 - **`get_daq_examples.py`** - Example usage patterns for the NIDAQReader class
 - **`show_devices.py`** - Utility to list available NI devices
 - **Various test files** - Development and testing scripts
@@ -297,8 +364,9 @@ The main GUI application (`DAQMainWindow.py`) provides:
 ### Left Panel - Acquisition Settings
 - **Device Selection** - Automatic device detection with hot-plug support
 - **Channel Configuration** - Enable/disable up to 16 analog inputs (AI0-AI15)
+- **Per-Channel Gains** - Configure individual voltage ranges for optimal resolution
 - **Input Settings** - Terminal configuration, voltage range, sampling rate
-- **Statistics Table** - Real-time min/max/mean values for each active channel
+- **Statistics Table** - Real-time min/max/mean values and voltage ranges for each active channel
 
 ### Right Panel - Visualization and Data Management
 
