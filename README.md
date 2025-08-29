@@ -12,6 +12,7 @@ A Python application for real-time data acquisition from National Instruments (N
 - **Device auto-detection** and hot-plug support
 - **Statistics display** (min, max, mean for each channel)
 - **Data export** to CSV with metadata
+- **Graph screenshots** to high-resolution PNG images with timestamped filenames
 - **Configurable sampling rates** and voltage ranges
 - **Rolling average** and downsampling options
 - **Professional GUI** built with PySide6 and pyqtgraph
@@ -390,7 +391,28 @@ The main GUI application (`DAQMainWindow.py`) provides:
 - **Auto-scaling** and manual range controls
 - **Channel visibility** toggles with color-coded legends
 - **File Management** - Directory selection and CSV export with metadata
+- **Graph Screenshots** - Capture current graph as high-resolution PNG with automatic timestamped naming
 - **Status Display** - Connection status and operation feedback
+
+#### Graph Screenshot Feature
+The application includes a professional graph capture feature accessible via the "📷 Capture Graph" button:
+
+**Filename Format**: `graph-[type]-[date]-[time]-[channels].png`
+- `[type]`: "time" for Time Analyzer or "spectrum" for Spectrum Analyzer
+- `[date]`: MM.DD.YY format (e.g., "08.29.25")
+- `[time]`: HHMM format in 24-hour time (e.g., "0900" for 9:00 AM)
+- `[channels]`: Active channel names (e.g., "a1a5" for channels ai1 and ai5)
+
+**Examples**:
+- `graph-time-08.29.25-0900-a1a5.png` - Time domain at 9:00 AM with channels ai1 and ai5
+- `graph-spectrum-08.29.25-1430-a0a2a3.png` - Spectrum at 2:30 PM with channels ai0, ai1, ai3
+- `graph-time-08.29.25-2115-nodata.png` - Time domain at 9:15 PM with no visible channels
+
+**Features**:
+- High-resolution output (1920×1080 with anti-aliasing)
+- Captures exactly what's displayed on screen
+- Automatic file naming prevents overwrites
+- Requires save directory to be selected first
 
 ### Key Features
 - **Hot-plug Support** - Automatically detects when devices are connected/disconnected

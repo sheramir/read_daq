@@ -1,7 +1,10 @@
 from PySide6 import QtWidgets, QtCore
 import pyqtgraph as pg
+from pyqtgraph.exporters import ImageExporter
 import numpy as np
 import csv
+import datetime
+import os
 from niDAQ import NIDAQReader, NIDAQSettings
 from settings_manager import SettingsManager
 
@@ -339,6 +342,13 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         file_layout.addWidget(self.saveBtn)
         save_layout.addLayout(file_layout)
         
+        # Screenshot button
+        screenshot_layout = QtWidgets.QHBoxLayout()
+        self.screenshotBtn = QtWidgets.QPushButton("📷 Capture Graph")
+        self.screenshotBtn.setToolTip("Save current graph as PNG image")
+        screenshot_layout.addWidget(self.screenshotBtn)
+        save_layout.addLayout(screenshot_layout)
+        
         right_layout.addWidget(save_group, 1)  # Save controls get 1 part
         # Status bar
         self.statusBar = QtWidgets.QLabel("")
@@ -512,6 +522,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.startBtn.clicked.connect(self.start_acquisition)
         self.stopBtn.clicked.connect(self.stop_acquisition)
         self.saveBtn.clicked.connect(self.save_data)
+        self.screenshotBtn.clicked.connect(self.capture_graph)
         self.browseDirBtn.clicked.connect(self.browse_save_directory)
         self.configGainBtn.clicked.connect(self.configure_channel_gains)
         for cb in self.plotVisibilityChecks:
@@ -1060,6 +1071,67 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.statusBar.setText(f"Saved to {full_path}")
         except Exception as e:
             self.statusBar.setText(f"Save error: {e}")
+
+    def capture_graph(self):
+        """Capture the current graph and save it as a PNG image."""
+        # Check if directory is selected
+        if not self.save_directory:
+            self.statusBar.setText("Please select a directory first.")
+            return
+        
+        try:
+            # Get current time for filename
+            now = datetime.datetime.now()
+            time_str = now.strftime("%m.%d.%y-%H%M")
+            
+            # Determine graph type and get active channels
+            current_tab = self.plot_tabs.currentIndex()
+            if current_tab == 0:
+                graph_type = "time"
+                plot_widget = self.plot
+            else:
+                graph_type = "spectrum"
+                plot_widget = self.spectrum_plot
+            
+            # Get active channels for filename
+            selected_channels = self.get_selected_channels()
+            active_channels = []
+            
+            # Check which channels have visible curves
+            for i, channel in enumerate(selected_channels):
+                if i < len(self.plotVisibilityChecks) and self.plotVisibilityChecks[i].isChecked():
+                    # Convert channel name (e.g., "ai0" -> "a0")
+                    if channel.startswith("ai"):
+                        active_channels.append("a" + channel[2:])
+                    else:
+                        active_channels.append(channel)
+            
+            # Create channel string for filename
+            if active_channels:
+                channels_str = "".join(active_channels)
+            else:
+                channels_str = "nodata"
+            
+            # Create filename: graph-time-8.29.25-0900-a1a5.png
+            filename = f"graph-{graph_type}-{time_str}-{channels_str}.png"
+            full_path = os.path.join(self.save_directory, filename)
+            
+            # Export the plot widget as PNG
+            exporter = ImageExporter(plot_widget.plotItem)
+            
+            # Set high quality parameters
+            exporter.parameters()['width'] = 1920  # High resolution
+            exporter.parameters()['height'] = 1080
+            exporter.parameters()['antialias'] = True
+            
+            # Export to file
+            exporter.export(full_path)
+            
+            self.statusBar.setText(f"Graph saved to {filename}")
+            
+        except Exception as e:
+            self.statusBar.setText(f"Screenshot error: {e}")
+            print(f"Screenshot error details: {e}")
 
     def browse_save_directory(self):
         """Open directory selection dialog."""
