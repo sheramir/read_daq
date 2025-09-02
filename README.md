@@ -240,16 +240,21 @@ The NI USB-6211 has a maximum AI conversion rate of approximately **250 kHz**, w
 - **`niDAQ.py`** - Main DAQ wrapper classes (see detailed documentation below)
 - **`DAQMainWindow.py`** - Complete GUI application window with all UI components
 - **`freq_filters.py`** - Digital signal processing library with frequency filtering functions
+- **`settings_manager.py`** - Settings persistence and validation system
 - **`main.py`** - Application entry point
 - **`requirements.txt`** - Python package dependencies
 - **`pyproject.toml`** - Project configuration
 
-### Example and Utility Files
+### Tests and Examples
 
-- **`example_channel_gains.py`** - Demonstrates per-channel gain configuration
-- **`get_daq_examples.py`** - Example usage patterns for the NIDAQReader class
-- **`show_devices.py`** - Utility to list available NI devices
-- **Various test files** - Development and testing scripts
+All test scripts, examples, and utility programs are organized in the **`tests/`** folder:
+
+- **Example Programs** - Demonstrations of key features (channel gains, delays, screenshots)
+- **Test Scripts** - Unit tests and validation programs for core functionality
+- **Utility Tools** - Device discovery and system checking tools
+- **Documentation** - Working examples showing best practices
+
+See **`tests/README.md`** for detailed descriptions of each file and how to run them.
 
 ## NIDAQReader Class Documentation
 

@@ -5,6 +5,11 @@ Test script to demonstrate settings persistence functionality.
 
 import json
 import time
+import sys
+import os
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from niDAQ import NIDAQSettings
 
 def create_test_settings():

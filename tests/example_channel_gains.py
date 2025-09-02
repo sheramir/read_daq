@@ -6,6 +6,11 @@ This example demonstrates how to configure different voltage ranges
 (gains) for different channels to optimize resolution for various signal types.
 """
 
+import sys
+import os
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from niDAQ import NIDAQReader, NIDAQSettings
 
 def main():

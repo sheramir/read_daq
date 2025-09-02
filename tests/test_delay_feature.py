@@ -4,6 +4,11 @@ Test script for inter-channel delay functionality.
 This demonstrates the new delay control feature.
 """
 
+import sys
+import os
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from niDAQ import NIDAQSettings, NIDAQReader
 
 def test_delay_functionality():

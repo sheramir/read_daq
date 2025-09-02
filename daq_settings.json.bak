@@ -30,7 +30,7 @@
   "filter_order": 4,
   "filter_type": "Low Pass",
   "input_config": "RSE",
-  "inter_channel_delay_us": 800.0,
+  "inter_channel_delay_us": 0.0,
   "last_filename": "",
   "max_frequency": 100,
   "max_voltage": 10.0,
