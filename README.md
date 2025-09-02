@@ -6,6 +6,7 @@ A Python application for real-time data acquisition from National Instruments (N
 
 - **Real-time data acquisition** from multiple analog input channels
 - **Per-channel programmable gain** for optimized signal resolution
+- **Inter-channel delay control** for timing optimization and crosstalk reduction
 - **Dual-domain visualization** with tabbed Time and Spectrum Analyzer views
 - **Live frequency filtering** with multiple filter types (low-pass, high-pass, band-pass, band-stop, notch)
 - **FFT spectrum analysis** with configurable windowing functions and frequency ranges
@@ -170,6 +171,67 @@ The GUI application includes a **"Configure Channel Gains"** button that opens a
 2. **Leave headroom**: Allow 10-20% margin to prevent clipping
 3. **Consider noise**: Smaller ranges may amplify noise along with signal
 4. **Mixed signals**: Different channels can have completely different ranges
+
+## Inter-Channel Delay Control
+
+The application provides precise control over the timing between channel conversions, which is crucial for reducing crosstalk and optimizing signal quality in multi-channel acquisitions.
+
+### What is Inter-Channel Delay?
+
+When sampling multiple channels, the NI USB-6211 uses a multiplexer to rapidly switch between channels. The inter-channel delay controls how long the system waits between switching from one channel to the next, allowing for:
+
+- **Signal settling time** after multiplexer switching
+- **Crosstalk reduction** between adjacent channels  
+- **External circuit compatibility** with specific timing requirements
+- **Optimization for different signal conditioning**
+
+### Configuration Options
+
+**GUI Control**: The "Inter-channel delay" spinbox in the left panel allows setting delays from 0.0 to 10,000.0 microseconds.
+
+**Settings**:
+- **0.0 µs**: Automatic/fastest conversion rate (hardware optimized)
+- **4.0+ µs**: Manual delay settings (hardware minimum ~4µs for USB-6211)
+- **Higher values**: Slower conversion but better settling/isolation
+
+### Programmatic Configuration
+
+```python
+from niDAQ import NIDAQSettings
+
+# Create settings with inter-channel delay
+settings = NIDAQSettings(
+    channels=["ai0", "ai1", "ai2"],
+    sampling_rate_hz=1000.0,
+    inter_channel_delay_us=10.0  # 10 microsecond delay between channels
+)
+
+# Get maximum conversion rate information
+reader = NIDAQReader(settings)
+reader.start()
+max_rate = reader.get_max_conversion_rate()  # Returns Hz
+min_delay_us = 1.0 / max_rate * 1e6 if max_rate else None
+print(f"Minimum possible delay: {min_delay_us:.2f} µs")
+reader.close()
+```
+
+### Hardware Limitations
+
+The NI USB-6211 has a maximum AI conversion rate of approximately **250 kHz**, which corresponds to a **minimum delay of ~4.0 µs**. The application automatically:
+
+- **Validates delay settings** against hardware limits
+- **Shows warnings** when requested delays are too small
+- **Uses maximum rate** when delays exceed hardware capabilities
+- **Provides feedback** on actual achievable timing
+
+### Use Cases
+
+| Application | Typical Delay | Benefit |
+|------------|---------------|---------|
+| High-speed digital signals | 0 µs (auto) | Maximum throughput |
+| Mixed analog signals | 5-10 µs | Reduced crosstalk |
+| Thermocouples/RTDs | 50-100 µs | Complete settling |
+| External multiplexers | 100+ µs | Circuit compatibility |
 
 ## File Structure
 

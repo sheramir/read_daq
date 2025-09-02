@@ -137,12 +137,20 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.avgMsSpin = QtWidgets.QSpinBox()
         self.avgMsSpin.setRange(0, 10000)
         self.avgMsSpin.setValue(0)
+        self.delaySpin = QtWidgets.QDoubleSpinBox()
+        self.delaySpin.setRange(0.0, 10000.0)  # 0 to 10,000 microseconds
+        self.delaySpin.setValue(0.0)
+        self.delaySpin.setSuffix(" µs")
+        self.delaySpin.setDecimals(2)
+        self.delaySpin.setToolTip("Inter-channel conversion delay (0 = automatic/fastest)")
         left_layout.addWidget(QtWidgets.QLabel("Rate (Hz):"))
         left_layout.addWidget(self.rateSpin)
         left_layout.addWidget(QtWidgets.QLabel("Samples to Read:"))
         left_layout.addWidget(self.samplesSpin)
         left_layout.addWidget(QtWidgets.QLabel("Average time span [ms]:"))
         left_layout.addWidget(self.avgMsSpin)
+        left_layout.addWidget(QtWidgets.QLabel("Inter-channel delay:"))
+        left_layout.addWidget(self.delaySpin)
         # Channel Selection
         left_layout.addWidget(QtWidgets.QLabel("Channels:"))
         self.aiChecks = []
@@ -378,6 +386,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.rateSpin.setValue(self.app_settings["sampling_rate"])
             self.samplesSpin.setValue(self.app_settings["samples_to_read"])
             self.avgMsSpin.setValue(self.app_settings["average_time_span"])
+            self.delaySpin.setValue(self.app_settings.get("inter_channel_delay_us", 0.0))
             
             # Apply channel selections
             for i, cb in enumerate(self.aiChecks):
@@ -453,6 +462,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             "sampling_rate": self.rateSpin.value(),
             "samples_to_read": self.samplesSpin.value(),
             "average_time_span": self.avgMsSpin.value(),
+            "inter_channel_delay_us": self.delaySpin.value(),
             
             # Channel settings
             "selected_channels": selected_channels,
@@ -506,6 +516,48 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             print(f"Error saving settings: {e}")
             self.statusBar.setText("Error saving settings.")
 
+    def validate_delay_setting(self):
+        """Validate the inter-channel delay setting and show warnings if needed."""
+        try:
+            delay_us = self.delaySpin.value()
+            if delay_us <= 0:
+                return  # No validation needed for auto mode
+            
+            # Create a temporary settings object to check max conversion rate
+            temp_settings = NIDAQSettings(
+                device_name=self.deviceSelector.currentText(),
+                channels=self.get_selected_channels() or ["ai0"],  # Use ai0 if none selected
+                inter_channel_delay_us=delay_us
+            )
+            
+            # Create temporary reader to check max rate
+            from niDAQ import NIDAQReader
+            temp_reader = NIDAQReader(temp_settings)
+            try:
+                temp_reader.start()
+                max_conv_rate = temp_reader.get_max_conversion_rate()
+                temp_reader.close()
+                
+                if max_conv_rate is not None:
+                    # Convert delay to required rate
+                    required_rate = 1.0 / (delay_us * 1e-6)
+                    if required_rate > max_conv_rate:
+                        max_delay_us = 1.0 / max_conv_rate * 1e6
+                        self.statusBar.setText(
+                            f"Warning: Delay {delay_us:.2f} µs too small. "
+                            f"Maximum delay: {max_delay_us:.2f} µs"
+                        )
+                    else:
+                        self.statusBar.setText(f"Inter-channel delay: {delay_us:.2f} µs")
+                        
+            except Exception:
+                # If we can't validate (e.g., no device), just clear any warning
+                temp_reader.close()
+                
+        except Exception as e:
+            # Don't show errors for delay validation failures
+            pass
+
     def closeEvent(self, event):
         """Handle application close event."""
         # Save settings before closing
@@ -554,6 +606,8 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.rateSpin.valueChanged.connect(self.save_current_settings)
         self.samplesSpin.valueChanged.connect(self.save_current_settings)
         self.avgMsSpin.valueChanged.connect(self.save_current_settings)
+        self.delaySpin.valueChanged.connect(self.save_current_settings)
+        self.delaySpin.valueChanged.connect(self.validate_delay_setting)
         
         # Channel selection
         for cb in self.aiChecks:
@@ -759,6 +813,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
                 terminal_config=self.inputConfigCombo.currentText(),
                 v_min=self.minVoltSpin.value(),
                 v_max=self.maxVoltSpin.value(),
+                inter_channel_delay_us=self.delaySpin.value(),
                 channel_ranges=self.channel_ranges if self.channel_ranges else None
             )
             samples_per_read = self.samplesSpin.value()
@@ -770,7 +825,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.startBtn.setEnabled(False)
             self.stopBtn.setEnabled(True)
             for w in [self.deviceSelector, self.inputConfigCombo, self.maxVoltSpin, self.minVoltSpin,
-                      self.rateSpin, self.samplesSpin, self.avgMsSpin] + self.aiChecks:
+                      self.rateSpin, self.samplesSpin, self.avgMsSpin, self.delaySpin] + self.aiChecks:
                 w.setEnabled(False)
             self.statusBar.setText("Acquisition started.")
             self.history_t = []
@@ -792,7 +847,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.startBtn.setEnabled(True)
         self.stopBtn.setEnabled(False)
         for w in [self.deviceSelector, self.inputConfigCombo, self.maxVoltSpin, self.minVoltSpin,
-                  self.rateSpin, self.samplesSpin, self.avgMsSpin] + self.aiChecks:
+                  self.rateSpin, self.samplesSpin, self.avgMsSpin, self.delaySpin] + self.aiChecks:
             w.setEnabled(True)
         self.statusBar.setText("Acquisition stopped.")
         # Clear statistics table

@@ -85,6 +85,8 @@ class NIDAQSettings:
     terminal_config: str = "RSE"
     channels: List[str] = field(default_factory=lambda: ["ai0"])
     adc_bits: int = 16          # <-- add ADC resolution (nominal)
+    # Inter-channel conversion delay in microseconds (0 = automatic/fastest)
+    inter_channel_delay_us: float = 0.0
     # Per-channel voltage ranges (optional) - if provided, overrides v_min/v_max for specific channels
     channel_ranges: Optional[Dict[str, Tuple[float, float]]] = None
     
@@ -272,6 +274,22 @@ class NIDAQReader:
             samps_per_chan=samps_per_chan,
         )
 
+        # Configure inter-channel conversion delay if specified
+        if self.settings.inter_channel_delay_us > 0:
+            # Convert delay from microseconds to Hz (conversion rate)
+            conv_rate_hz = 1.0 / (self.settings.inter_channel_delay_us * 1e-6)
+            
+            # Check against maximum conversion rate
+            max_conv_rate = getattr(self._task.timing, "ai_conv_max_rate", None)
+            if max_conv_rate is not None and conv_rate_hz > max_conv_rate:
+                conv_rate_hz = max_conv_rate
+                actual_delay_us = 1.0 / conv_rate_hz * 1e6
+                print(f"Warning: Requested delay {self.settings.inter_channel_delay_us:.2f} µs too small. "
+                      f"Using maximum rate, actual delay: {actual_delay_us:.2f} µs")
+            
+            # Set the AI conversion rate
+            self._task.timing.ai_conv_rate = conv_rate_hz
+
         self._reader = AnalogMultiChannelReader(self._task.in_stream)
         self._running = True
         self._t0_perf = time.perf_counter()
@@ -381,6 +399,38 @@ class NIDAQReader:
         self.settings.sampling_rate_hz = rate_hz
         if self._running:
             self.start()
+
+    def set_inter_channel_delay(self, delay_us: float) -> None:
+        """Set inter-channel conversion delay in microseconds.
+
+        Parameters
+        ----------
+        delay_us : float
+            Delay between channel conversions in microseconds (>= 0).
+            0 means automatic/fastest conversion rate.
+
+        Raises
+        ------
+        ValueError
+            If delay_us < 0.
+        """
+        if delay_us < 0:
+            raise ValueError("inter_channel_delay_us must be >= 0")
+        self.settings.inter_channel_delay_us = delay_us
+        if self._running:
+            self.start()
+
+    def get_max_conversion_rate(self) -> Optional[float]:
+        """Get the maximum AI conversion rate for the current task.
+        
+        Returns
+        -------
+        float | None
+            Maximum conversion rate in Hz, or None if task not created.
+        """
+        if self._task is None:
+            return None
+        return getattr(self._task.timing, "ai_conv_max_rate", None)
 
     # -------------- Reading --------------
     def read_data(
@@ -648,6 +698,9 @@ class NIDAQReader:
         # sampling
         if self.settings.sampling_rate_hz <= 0:
             raise ValueError("sampling_rate_hz must be > 0")
+        # inter-channel delay
+        if self.settings.inter_channel_delay_us < 0:
+            raise ValueError("inter_channel_delay_us must be >= 0")
 
     def _normalize_and_validate_channels(self, channels: Iterable[str]) -> List[str]:
         """Normalize & validate channel identifiers.

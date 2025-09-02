@@ -30,15 +30,16 @@
   "filter_order": 4,
   "filter_type": "Low Pass",
   "input_config": "RSE",
+  "inter_channel_delay_us": 800.0,
   "last_filename": "",
   "max_frequency": 100,
-  "max_voltage": 2.6,
-  "min_voltage": 2.4,
+  "max_voltage": 10.0,
+  "min_voltage": -10.0,
   "samples_to_read": 100,
   "sampling_rate": 1000,
   "save_directory": "C:/Code/read_daq",
   "selected_channels": [
-    1,
+    0,
     5
   ]
 }
