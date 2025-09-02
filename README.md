@@ -68,6 +68,8 @@ The application will automatically detect connected NI devices and allow you to:
 - View live plots with statistics
 - Save data to CSV files
 
+**Note**: The application now uses a modular architecture for better maintainability. The main entry point (`main.py`) launches the modular version which provides the same functionality as before with enhanced features like a menu system, help dialogs, and improved error handling.
+
 ### Using the NIDAQReader Class Programmatically
 
 ```python

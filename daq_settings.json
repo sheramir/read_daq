@@ -1,39 +1,60 @@
 {
-  "sample_rate": 5000.0,
-  "channels": [
-    "ai0",
-    "ai1",
-    "ai2"
-  ],
-  "device": "Dev1",
-  "duration": 10.0,
-  "display_duration": 5.0,
+  "active_tab": 0,
+  "auto_scale": false,
+  "average_time_span": 0,
   "channel_ranges": {
-    "ai0": "\u00b11 V",
-    "ai1": "\u00b15 V",
-    "ai2": "\u00b110 V"
+    "ai0": [
+      -1.0,
+      1.0
+    ],
+    "ai1": [
+      -5.0,
+      5.0
+    ],
+    "ai2": [
+      -10.0,
+      10.0
+    ]
   },
-  "plot_settings": {
-    "show_legend": true,
-    "auto_scale": false,
-    "show_grid": true,
-    "line_width": 2.0
-  },
-  "filter_settings": {
-    "enable_filter": true,
-    "filter_type": "lowpass",
-    "cutoff_frequency": 1000.0,
-    "filter_order": 4
-  },
-  "save_settings": {
-    "save_directory": "C:/DAQ_Data",
-    "auto_save": true,
-    "file_format": "csv"
-  },
-  "spectrum_settings": {
-    "enable_spectrum": true,
-    "window_function": "hanning",
-    "overlap_percent": 50.0,
-    "frequency_resolution": 1.0
-  }
+  "channel_visibility": [
+    true,
+    true,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "device_name": "Dev1",
+  "fft_size": "Auto",
+  "fft_window": "Hanning",
+  "filter_cutoff1": 100.0,
+  "filter_cutoff2": 200.0,
+  "filter_enabled": false,
+  "filter_order": 4,
+  "filter_type": "Low Pass",
+  "input_config": "RSE",
+  "inter_channel_delay_us": 0.0,
+  "last_filename": "",
+  "max_frequency": 100,
+  "max_voltage": 3.5,
+  "min_voltage": -1.0,
+  "samples_to_read": 100,
+  "sampling_rate": 1000,
+  "save_directory": "",
+  "selected_channels": [
+    0,
+    1,
+    5,
+    6
+  ]
 }
