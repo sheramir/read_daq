@@ -85,8 +85,22 @@ class PlotManager(QtCore.QObject):
         if len(self.time_curves) == 0 or t_data.size == 0 or y_data.size == 0:
             return
         
-        # Performance optimization: Downsample for display if too many points
-        max_plot_points = 2000  # Limit points for smooth rendering
+        # Performance optimization: Aggressive downsampling for high-rate data
+        # Estimate sampling rate from data
+        if len(t_data) > 1:
+            dt = t_data[1] - t_data[0]
+            estimated_rate = 1.0 / dt if dt > 0 else 1000
+        else:
+            estimated_rate = 1000
+        
+        # Adaptive max plot points based on estimated sampling rate
+        if estimated_rate >= 50000:
+            max_plot_points = 1000  # Very aggressive for 50kHz+
+        elif estimated_rate >= 25000:
+            max_plot_points = 1500  # Moderate for 25kHz+
+        else:
+            max_plot_points = 2000  # Standard for lower rates
+        
         if len(t_data) > max_plot_points:
             # Downsample by taking every nth point
             step = len(t_data) // max_plot_points

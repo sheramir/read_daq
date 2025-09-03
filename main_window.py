@@ -46,7 +46,7 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         # Performance optimization: Rate-limited GUI updates
         self.gui_update_timer = QtCore.QTimer()
         self.gui_update_timer.timeout.connect(self.update_gui_elements)
-        self.gui_update_timer.start(33)  # 30 Hz updates instead of data rate
+        self.gui_update_timer.start(33)  # 30 Hz updates (will be adjusted for high rates)
         
         # Data buffer for rate-limited updates
         self.latest_data = None
@@ -425,6 +425,25 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         samples_per_read = self.main_layout.samplesSpin.value()
         avg_ms = self.main_layout.avgMsSpin.value()
         
+        # Optimize buffer size for high sampling rates to reduce overhead
+        sampling_rate = daq_settings.get('sampling_rate', 1000)
+        if sampling_rate >= 25000:
+            # For high rates, use larger buffers to reduce read frequency
+            # Target: read every 20-50ms instead of every few ms
+            min_samples = int(sampling_rate * 0.02)  # 20ms worth of data
+            if samples_per_read < min_samples:
+                samples_per_read = min_samples
+                self.update_status(f"Buffer size auto-increased to {samples_per_read} for {sampling_rate}Hz")
+            
+            # Also reduce GUI update rate for high sampling rates
+            if sampling_rate >= 50000:
+                self.gui_update_timer.start(100)  # 10 Hz for 50kHz+
+                self.update_status("GUI update rate reduced to 10Hz for optimal 50kHz performance")
+            elif sampling_rate >= 25000:
+                self.gui_update_timer.start(67)   # 15 Hz for 25kHz+
+        else:
+            # Normal GUI update rate for lower sampling rates
+            self.gui_update_timer.start(33)  # 30 Hz
         success = self.daq_controller.start_acquisition(daq_settings, samples_per_read, avg_ms)
         if not success:
             self.show_error("Failed to start acquisition")

@@ -48,7 +48,7 @@
   "max_frequency": 100,
   "max_voltage": 3.5,
   "min_voltage": -1.0,
-  "samples_to_read": 100,
+  "samples_to_read": 1000,
   "sampling_rate": 50000,
   "save_directory": "",
   "selected_channels": [
