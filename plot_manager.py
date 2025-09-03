@@ -85,11 +85,22 @@ class PlotManager(QtCore.QObject):
         if len(self.time_curves) == 0 or t_data.size == 0 or y_data.size == 0:
             return
         
+        # Performance optimization: Downsample for display if too many points
+        max_plot_points = 2000  # Limit points for smooth rendering
+        if len(t_data) > max_plot_points:
+            # Downsample by taking every nth point
+            step = len(t_data) // max_plot_points
+            t_display = t_data[::step]
+            y_display = y_data[::step] if y_data.ndim == 1 else y_data[::step, :]
+        else:
+            t_display = t_data
+            y_display = y_data
+        
         # Update each curve
         for i, curve in enumerate(self.time_curves):
             if i < len(self.channel_visibility) and self.channel_visibility[i]:
-                if i < y_data.shape[1]:
-                    curve.setData(t_data, y_data[:, i])
+                if i < y_display.shape[1]:
+                    curve.setData(t_display, y_display[:, i])
                     curve.show()
                 else:
                     curve.hide()

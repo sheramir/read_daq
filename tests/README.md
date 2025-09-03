@@ -10,6 +10,11 @@ This folder contains test scripts, example code, and utility programs for the DA
 - **`test_imageexporter.py`** - Tests PyQtGraph screenshot/export functionality
 - **`test_screenshot.py`** - Tests graph capture feature
 
+### Performance and Analysis
+- **`performance_test.py`** - Comprehensive performance analysis for high sampling rates
+- **`test_versions.py`** - Comparison between monolithic and modular versions
+- **`PERFORMANCE_ANALYSIS.md`** - Detailed performance bottleneck analysis and optimization guide
+
 ### Verification Scripts
 - **`verify_settings.py`** - Verifies settings loading/saving works correctly
 - **`verify_screenshot.py`** - Verifies screenshot implementation is complete

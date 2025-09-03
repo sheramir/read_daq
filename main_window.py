@@ -43,6 +43,15 @@ class DAQMainWindow(QtWidgets.QMainWindow):
         self.settings_controller = SettingsController()
         self.file_manager = FileManager()
         
+        # Performance optimization: Rate-limited GUI updates
+        self.gui_update_timer = QtCore.QTimer()
+        self.gui_update_timer.timeout.connect(self.update_gui_elements)
+        self.gui_update_timer.start(33)  # 30 Hz updates instead of data rate
+        
+        # Data buffer for rate-limited updates
+        self.latest_data = None
+        self.data_pending = False
+        
         # GUI will be created in setup_ui
         self.plot_manager = None
         self.main_layout = None
@@ -322,15 +331,27 @@ class DAQMainWindow(QtWidgets.QMainWindow):
             self.settings_controller.restore_device_selection(gui_widgets)
     
     def on_data_ready(self, t, y):
-        """Handle new data from DAQ."""
-        # Add data to processor
+        """Handle new data from DAQ - store for rate-limited processing."""
+        # Store latest data without immediate GUI updates
+        self.latest_data = (t, y)
+        self.data_pending = True
+        
+        # Add to data processor for accumulation (quick operation)
         sampling_rate = self.main_layout.rateSpin.value()
         avg_ms = self.main_layout.avgMsSpin.value()
         max_buffer_time = max(5, 2 * avg_ms / 1000) if avg_ms > 0 else 5
         
         self.data_processor.add_data(t, y, max_buffer_time, sampling_rate)
+    
+    def update_gui_elements(self):
+        """Rate-limited GUI update method (called by timer at 30 Hz)."""
+        if not self.data_pending or self.latest_data is None:
+            return
         
-        # Update plots
+        t, y = self.latest_data
+        self.data_pending = False
+        
+        # Now do the expensive GUI operations at controlled rate
         self.update_time_plot()
         self.update_spectrum_plot()
         
