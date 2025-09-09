@@ -2,23 +2,10 @@
   "active_tab": 0,
   "auto_scale": false,
   "average_time_span": 0,
-  "channel_ranges": {
-    "ai0": [
-      -1.0,
-      1.0
-    ],
-    "ai1": [
-      -5.0,
-      5.0
-    ],
-    "ai2": [
-      -10.0,
-      10.0
-    ]
-  },
+  "channel_ranges": {},
   "channel_visibility": [
     true,
-    true,
+    false,
     false,
     false,
     false,
@@ -34,10 +21,10 @@
     false,
     false
   ],
-  "device_name": "Dev1",
+  "device_name": "No device found",
   "fft_size": "Auto",
   "fft_window": "Hanning",
-  "filter_cutoff1": 100.0,
+  "filter_cutoff1": 40.0,
   "filter_cutoff2": 200.0,
   "filter_enabled": false,
   "filter_order": 4,
@@ -45,11 +32,11 @@
   "input_config": "RSE",
   "inter_channel_delay_us": 0.0,
   "last_filename": "",
-  "max_frequency": 100,
-  "max_voltage": 3.5,
-  "min_voltage": -1.0,
-  "samples_to_read": 1000,
-  "sampling_rate": 50000,
+  "max_frequency": 1000,
+  "max_voltage": 10.0,
+  "min_voltage": -10.0,
+  "samples_to_read": 100,
+  "sampling_rate": 20000,
   "save_directory": "",
   "selected_channels": [
     0,
